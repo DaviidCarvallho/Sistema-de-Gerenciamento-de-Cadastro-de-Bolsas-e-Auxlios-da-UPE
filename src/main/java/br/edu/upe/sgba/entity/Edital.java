@@ -1,0 +1,34 @@
+package br.edu.upe.sgba.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "editais")
+@Getter @Setter @NoArgsConstructor
+public class Edital {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    @Column(nullable = false, length = 30)
+    private String numeroEdital;
+    private Short ano;
+    private LocalDate dataPublicacao;
+    private LocalDateTime dataInicioSubmissoes;
+    private LocalDateTime dataFimSubmissoes;
+    @Column(length = 500)
+    private String caminhoArquivoPdf;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "programa_id", nullable = false)
+    private ProgramaBolsa programa;
+
+    @OneToMany(mappedBy = "edital", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ExigenciaEdital> exigencias = new ArrayList<>();
+
+    @OneToMany(mappedBy = "edital", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PerguntaEdital> perguntas = new ArrayList<>();
+}
