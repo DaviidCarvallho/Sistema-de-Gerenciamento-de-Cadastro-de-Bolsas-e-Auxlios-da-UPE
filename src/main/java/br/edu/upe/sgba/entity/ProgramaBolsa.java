@@ -37,6 +37,4 @@ public class ProgramaBolsa {
     @OneToMany(mappedBy = "programa", cascade = CascadeType.ALL)
     private List<Edital> editais = new ArrayList<>();
 
-    @OneToMany(mappedBy = "programa")
-    private List<Submissao> submissoes = new ArrayList<>();
 }
