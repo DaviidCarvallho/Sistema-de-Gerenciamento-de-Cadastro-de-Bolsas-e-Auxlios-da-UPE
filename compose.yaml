@@ -1,8 +1,10 @@
-
+# Checkpoint 3 — Issue 1 (Fundação)
+# Banco PostgreSQL para o profile `dev`.
+# Uso:  docker compose up -d   (bancos criados em volume, sobrevive a restarts)
 services:
   db:
     image: postgres:16
-    container_name: sgba-db
+    container_name: sgba-postgres
     environment:
       POSTGRES_DB: sgba
       POSTGRES_USER: sgba
@@ -10,12 +12,12 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - sgba_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sgba -d sgba"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
 volumes:
-  postgres_data:
+  sgba_pgdata:

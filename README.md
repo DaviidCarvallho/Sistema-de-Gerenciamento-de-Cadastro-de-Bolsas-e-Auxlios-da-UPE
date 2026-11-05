@@ -138,10 +138,12 @@ As próximas etapas envolvem a implementação dos repositórios, DTOs, serviço
 
 Antes de executar a aplicação, é necessário ter instalado:
 
-- Java JDK 21 ou superior compatível com o projeto.
-- Maven.
-- PostgreSQL.
+- **JDK 21** (o projeto compila com `--release 21`; um JRE não serve — precisa do `javac`).
+- Docker + Docker Compose (para o banco do profile `dev`).
 - Uma IDE de sua preferência, como IntelliJ IDEA, Eclipse ou VS Code.
+
+> **Dica:** se o `javac` não estiver no PATH, aponte o `JAVA_HOME` para um JDK 21 (por exemplo `~/.jdks/jdk-21.x`) antes de usar o wrapper: `export JAVA_HOME=$HOME/.jdks/jdk-21.0.13+9`.
+> Se `./mvnw` falhar com "permissão negada": `chmod +x mvnw`.
 
 ### Clonando o repositório
 
@@ -185,6 +187,75 @@ No Windows:
 ```bash
 mvnw.cmd spring-boot:run
 ```
+
+---
+
+## 🚀 Execução rápida (Checkpoint 3 — Issue 1: Fundação)
+
+### 1. Subir o PostgreSQL (profile `dev`)
+
+O `compose.yaml` sobe o PostgreSQL **16** (db `sgba`, usuário `sgba`, senha `sgba`, porta `5432`,
+com healthcheck e volume persistente):
+
+```bash
+docker compose up -d
+```
+
+Confirme que ficou saudável: `docker compose ps` (STATUS `healthy`).
+
+### 2. Rodar a aplicação com o profile `dev`
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+No Windows:
+
+```bash
+mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+O app cria o schema (`ddl-auto=update`) e, na primeira carga, o **seed de desenvolvimento**:
+procure no log por `[DevSeedData] Seed aplicado` (com o contrato de IDs/e-mails/editais impresso).
+
+### 3. Recarregar o seed
+
+O seed é **idempotente** (se já existirem usuários, só registra no log). Para recarregar do zero:
+
+```bash
+docker compose down -v      # remove o volume com os dados
+docker compose up -d
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+### 4. Smoke test da base de erros (D2)
+
+Qualquer rota não mapeada responde **404** com `ErrorResponse`:
+
+```bash
+curl -i http://localhost:8080/api/inexistente
+# {"status":404,"erro":"RECURSO_NAO_ENCONTRADO","mensagem":"Rota não mapeada na aplicação"}
+```
+
+### 5. Rodar os testes automatizados (profile `test`, H2 in-memory — não precisa do PG)
+
+```bash
+./mvnw test
+```
+
+### Dados do seed (contrato público para as Issues 2–6)
+
+| Dado | Valor |
+|---|---|
+| Usuários | `aluno@upe.br` / `professor@upe.br` / `gerenciador@upe.br` (header `X-Usuario-Id` — D1) |
+| Programa | "Programa de Iniciacao Cientifica (PIBIC)" — janela aberta (aparece em `/api/programas/abertos`) |
+| Edital A | `08/2026` — janela aberta, 2 perguntas (1 obrigatória), 2 exigências **opcionais** → fluxo feliz (Issue 5) |
+| Edital B | `09/2026` — janela aberta, 1 pergunta obrigatória, exigências **obrigatórias** → RN12 (Issue 6) |
+| Edital C | `07/2025` — janela **encerrada** → RN05 `FORA_DO_PRAZO` 409 (Issue 5) |
+| Edital D | `10/2026` — aberto, sem formulário → infra da Issue 4 (perguntas/exigências/duplicata 409) |
+
+Os IDs exatos são impressos no log do seed (variam conforme banco recém-criado — em banco limpo:
+usuários 1, 2, 3; programa 4; editais 5, 6, 7, 8).
 
 ---
 

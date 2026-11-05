@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### D7 — Diretório local de armazenamento de arquivos (RNF06) ###
+/storage/
