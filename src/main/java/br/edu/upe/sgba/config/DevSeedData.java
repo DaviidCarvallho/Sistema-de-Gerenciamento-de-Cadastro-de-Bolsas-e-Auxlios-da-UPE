@@ -111,7 +111,7 @@ public class DevSeedData implements CommandLineRunner {
     // ------------------------------- Helpers --------------------------------
 
     private long count(Class<?> entity) {
-        return em.createQuery("SELECT COUNT(x) FROM " + entity.getSimpleName(), Long.class).getSingleResult();
+        return em.createQuery("SELECT COUNT(x) FROM " + entity.getSimpleName() + " x", Long.class).getSingleResult();
     }
 
     private Usuario persistirUsuario(String nome, String email, FuncaoUsuario funcao) {
