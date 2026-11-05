@@ -1,3 +1,4 @@
+
 package br.edu.upe.sgba.entity;
 
 import br.edu.upe.sgba.entity.enums.FuncaoUsuario;
@@ -7,9 +8,13 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "usuarios")
-@Getter @Setter @NoArgsConstructor
+@Getter
+@Setter
+@NoArgsConstructor
 public class Usuario {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false, length = 150)

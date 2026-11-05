@@ -1,0 +1,21 @@
+
+services:
+  db:
+    image: postgres:16
+    container_name: sgba-db
+    environment:
+      POSTGRES_DB: sgba
+      POSTGRES_USER: sgba
+      POSTGRES_PASSWORD: sgba
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sgba -d sgba"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
