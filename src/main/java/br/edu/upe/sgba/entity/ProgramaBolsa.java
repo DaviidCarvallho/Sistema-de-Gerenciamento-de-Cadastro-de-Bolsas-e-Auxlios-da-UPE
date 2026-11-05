@@ -22,17 +22,28 @@ public class ProgramaBolsa {
     private CategoriaPrograma categoria;
     @Column(columnDefinition = "TEXT")
     private String descricao;
-    @Column(precision = 10, scale = 2)
+    @Column(precision = 10, scale = 2, nullable = false)
     private BigDecimal valorMensal;
+    @Column(nullable = false)
     private Short vagas;
-    @Column(length = 10)
+    @Column(length = 10, nullable = false)
     private String periodoLetivo;
+    @Column(nullable = false)
     private LocalDateTime dataAbertura;
+    @Column(nullable = false)
     private LocalDateTime dataLimite;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StatusPrograma status;
+    @Column(nullable = false)
     private LocalDateTime criadoEm;
+
+    @PrePersist
+    void prePersist() {
+        if (criadoEm == null) {
+            criadoEm = LocalDateTime.now();
+        }
+    }
 
     @OneToMany(mappedBy = "programa", cascade = CascadeType.ALL)
     private List<Edital> editais = new ArrayList<>();

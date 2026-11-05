@@ -21,7 +21,7 @@ public class DocumentoAnexo {
     @Column(nullable = false, length = 500)
     private String caminhoArquivo;
     private Long tamanhoBytes;
-    @Column(length = 100)
+    @Column(length = 100, nullable = false)
     private String mimeType;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

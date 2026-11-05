@@ -33,10 +33,13 @@ public class Edital {
     @Column(nullable = false)
     private Short ano;
 
+    @Column(nullable = false)
     private LocalDate dataPublicacao;
 
+    @Column(nullable = false)
     private LocalDateTime dataInicioSubmissoes;
 
+    @Column(nullable = false)
     private LocalDateTime dataFimSubmissoes;
 
     @Column(length = 500)
