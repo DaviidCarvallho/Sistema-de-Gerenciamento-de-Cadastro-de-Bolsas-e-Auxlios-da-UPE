@@ -254,8 +254,7 @@ curl -i http://localhost:8080/api/inexistente
 | Edital C | `07/2025` — janela **encerrada** → RN05 `FORA_DO_PRAZO` 409 (Issue 5) |
 | Edital D | `10/2026` — aberto, sem formulário → infra da Issue 4 (perguntas/exigências/duplicata 409) |
 
-Os IDs exatos são impressos no log do seed (variam conforme banco recém-criado — em banco limpo:
-usuários 1, 2, 3; programa 4; editais 5, 6, 7, 8).
+Os IDs exatos são impressos no log do seed — em banco limpo: usuários 1, 2, 3; programa 1; editais 1–4 (sequência IDENTITY por tabela).
 
 ---
 
