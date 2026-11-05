@@ -43,7 +43,7 @@ public class Aluno {
     @Column(nullable = false, unique = true, length = 20)
     private String matricula;
 
-    @Column(length = 100)
+    @Column(nullable = false, length = 100)
     private String curso;
 
     private Short periodoAtual;

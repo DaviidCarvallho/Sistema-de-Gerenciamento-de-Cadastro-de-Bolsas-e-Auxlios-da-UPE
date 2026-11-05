@@ -23,7 +23,7 @@ public class RespostaSubmissao {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String respostaTexto;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

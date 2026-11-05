@@ -1,0 +1,5 @@
+{
+	"name": "Usuários e Alunos",
+	"description": "Fragmento do módulo Usuários/Alunos — **Issue 2**. Preencher `item[]` com os requests do contrato REST (§6.2): CRUD /api/usuarios, /api/alunos + demonstração de RN01 (400), e-mail duplicado (409), cpf/matricula duplicados (409), 201+Location. Importar como pasta item da coleção principal em `../sgba-checkpoint3.postman_collection.json`.",
+	"item": []
+}

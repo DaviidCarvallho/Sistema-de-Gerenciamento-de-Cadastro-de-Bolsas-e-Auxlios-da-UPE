@@ -44,6 +44,7 @@ public class Submissao {
     @Column(columnDefinition = "TEXT")
     private String planoTrabalho;
 
+    @Column(nullable = false)
     private Boolean termoAceite;
 
     private LocalDateTime dataEnvio;
@@ -70,6 +71,26 @@ public class Submissao {
 
     @Column(length = 50)
     private String unidadeMomento;
+
+    @Column(nullable = false)
+    private LocalDateTime criadoEm;
+
+    private LocalDateTime atualizadoEm;
+
+    @PrePersist
+    void prePersist() {
+        if (criadoEm == null) {
+            criadoEm = LocalDateTime.now();
+        }
+        if (atualizadoEm == null) {
+            atualizadoEm = criadoEm;
+        }
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        atualizadoEm = LocalDateTime.now();
+    }
 
     @OneToMany(
             mappedBy = "submissao",
