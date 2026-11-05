@@ -1,0 +1,5 @@
+{
+	"name": "Documentos",
+	"description": "Fragmento do módulo Documentos — **Issue 6**. Preencher `item[]` com (§6.6): POST /api/submissoes/{id}/documentos (multipart 201/400/409), GET metadados, GET /api/documentos/{id}/download (200 application/pdf com os mesmos bytes), DELETE (204), PATCH /api/documentos/{id}/status (RF15, exige função GERENCIADOR — 400 PERMISSAO_INSUFICIENTE). Demonstração RN11: tipo OUTRO sem descricaoPersonalizada → 400. RN03: upload só em RASCUNHO/PENDENTE_DOCUMENTOS (409).",
+	"item": []
+}

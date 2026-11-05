@@ -1,0 +1,5 @@
+{
+	"name": "Programas",
+	"description": "Fragmento do módulo Programas de Bolsa — **Issue 3**. Preencher `item[]` com (§6.3): CRUD /api/programs paginado, /api/programas/abertos (visibilidade por datas), encerramento (409 na 2ª vez), POST com dataLimite < dataAbertura → 400. Verificar que o programa do seed da Issue 1 aparece em /abertos.",
+	"item": []
+}

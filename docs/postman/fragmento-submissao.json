@@ -1,0 +1,5 @@
+{
+	"name": "Submissões",
+	"description": "Fragmento do módulo Submissões — **Issue 5** (módulo central). Preencher `item[]` com o fluxo completo em ordem (§6.5): criar rascunho (Header X-Usuario-Id) → atualizar respostas+termoAceite → enviar (protocolo/dataEnvio/RECEBIDA) → PATCH status pelo gerenciador → GET /historico (4 eventos, RF12). Bloqueios: rascunho duplicado 409 (uk_aluno_edital), Edital C do seed → 409 FORA_DO_PRAZO (RN05), envio incompleto 409 (RN12), transição inválida 409, motivo ausente 400, X-Usuario-Id sem função → 400 PERMISSAO_INSUFICIENTE (§9.2).",
+	"item": []
+}

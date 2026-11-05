@@ -1,0 +1,5 @@
+{
+	"name": "Editais",
+	"description": "Fragmento do módulo Editais/Perguntas/Exigências — **Issue 4**. Preencher `item[]` com (§6.4): CRUD /api/editais + /api/editais/{id}/formulario, perguntas (409 ordem repetida), exigências (409 tipo repetido), duplicata numero+ano (409), janela invertida (400), upload/download do PDF (salvo em `sgba.storage.dir`, D7). Usar o Edital D do seed (10/2026) para a infra de perguntas/exigências.",
+	"item": []
+}

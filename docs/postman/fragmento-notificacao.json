@@ -1,0 +1,5 @@
+{
+	"name": "Notificações",
+	"description": "Fragmento do módulo Notificações — **Issue 6** (pode ser implementado antes do restante). Preencher `item[]` com (§6.6): GET /api/notificacoes?somenteNaoLidas=true (inbox RF17, D1 — header/id do destinatário) e PATCH /api/notificacoes/{id}/lida (idempotente, 200 + body). Notificação é criada automaticamente nas transições de status da Issue 5 (hook da Issue 6).",
+	"item": []
+}

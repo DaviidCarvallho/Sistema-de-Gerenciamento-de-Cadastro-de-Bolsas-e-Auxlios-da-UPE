@@ -1,0 +1,31 @@
+{
+	"info": {
+		"_postman_id": "10595026-e9b0-4bb0-b3b6-c1cbd383e293",
+		"name": "SGBA — Checkpoint 3",
+		"description": "Evidência do Critério C5 (CRUD via Postman/Insomnia ou demo ao vivo).\n\n- `baseUrl` aponta para `http://localhost:8080` (app com profile `dev`, banco do `compose.yaml`).\n- Cada módulo (Issues 2–6) preenche seu FRAGMENTO em `docs/postman/fragmento-<modulo>.json` (evita conflito de merge entre PRs paralelos).\n- A Issue 6 consolida todos os fragmentos nesta coleção única e a coloca para rodar contra o banco limpo + seed.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "usuarioAlunoId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "usuarioGerenciadorId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "editalAId",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
