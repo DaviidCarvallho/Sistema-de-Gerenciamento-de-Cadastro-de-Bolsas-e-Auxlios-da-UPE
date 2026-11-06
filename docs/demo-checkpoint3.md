@@ -1,10 +1,10 @@
-# Roteiro de demonstração — Checkpoint 3 (SGBA Back-end)
+# Roteiro de demonstração — Checkpoint 3 (SGBA Back-end) · CRUD essencial via Insomnia
 
-> Execução completa em **< 10 minutos** com a coleção **Insomnia** (`docs/insomnia/sgba-checkpoint3.insomnia.json`)
-> ou a coleção **Postman** equivalente (`docs/postman/sgba-checkpoint3.postman_collection.json`).
-> Cada request tem na **descrição** o status esperado e o código de erro D2 (`{status, erro, mensagem}`).
+> Fonte: coleção **`docs/insomnia/sgba-essencial.insomnia.json`** — a lista do **CRUD essencial** acordada para a arguição: **7 módulos · 23 requests**, demonstração completa em **< 10 minutos**.
+> A coleção completa (`docs/insomnia/sgba-checkpoint3.insomnia.json`, 85 requests) fica de **plano B**: provas de erro (códigos D2) e casos especiais — ver bloco final.
+> Erros seguem o formato D2: `{ "status": int, "erro": "CODIGO", "mensagem": "..." }`.
 
-**Banco limpo antes de começar** (os ids do seed precisam bater com o environment `dev`):
+**Banco limpo antes de começar** (os ids do seed precisam bater com o environment `dev (seed)`):
 
 ```bash
 docker compose down -v
@@ -12,78 +12,124 @@ docker compose up -d
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-No log, procure `[DevSeedData] Seed aplicado` e confira os ids: **aluno=1 · professor=2 · gerenciador=3 · programa=1 · editais 1–4** (A=1/08-2026 aberto · B=2/09-2026 exigências obrigatórias · C=3/07-2025 encerrado · D=4/10-2026 sem formulário).
+No log, procure `[DevSeedData] Seed aplicado` e confira os ids: **aluno=1 · professor=2 · gerenciador=3 · programa=1 (PIBIC) · editais 1–4** (A=1/08-2026 aberto · B=2/09-2026 exigências obrigatórias · C=3/07-2025 encerrado · D=4/10-2026 sem formulário).
 
-**Importar a coleção:** Insomnia → *Import* → *File* → `docs/insomnia/sgba-checkpoint3.insomnia.json`. O environment `dev (compose + seed)` já vem populado.
+**Importar:** Insomnia → *Import* → *File* → `docs/insomnia/sgba-essencial.insomnia.json`. O environment **`dev (seed)`** já vem populado (`baseUrl=http://localhost:8080`, `alunoId=1`, `professorId=2`, `gerenciadorId=3`, `programaId=1`, `editalAId=1`, `perguntaAId=1`, `submissaoId=1`, `documentoId=1`, `notificacaoId=1`).
+
+> **Ordem importa:** rode os módulos 1→7 na sequência das pastas. A criação do usuário no bloco 1 gera o `usuarioId=4` que o bloco 2 usa; o envio do bloco 5 gera a notificação que o bloco 7 lista.
 
 ---
 
-## Bloco 1 — Fundação e infraestrutura (C5 base) · 1 min
+## Bloco 1 — Usuários (R · R · C · U) · 1 min
 
-| # | Request | Prova |
-|---|---------|-------|
-| 1 | **0 · Fundação** → `GET /api/inexistente` | **404** com body `{status, erro, mensagem}` — handler base (D2) |
-| 2 | Papel: PG do Docker (`docker compose ps` = `healthy`) e o log do seed | RNF01/RNF04 |
+Pasta **Usuários**.
 
-## Bloco 2 — Usuários e Alunos (Issue 2) · 1 min
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `GET /api/usuarios?funcao=PROFESSOR` | **200** — lista/filtro por papel (retorna o professor do seed, id 2) |
+| 2 | `GET /api/usuarios/{alunoId}` (id 1) | **200** — detalhe: `nome`, `email` institucional, `funcao=ALUNO` |
+| 3 | `POST /api/usuarios` — `novo@upe.br`, `funcao=ALUNO` | **201** + `Location` — **anote: usuário criado com id 4** |
+| 4 | `PUT /api/usuarios/{alunoId}` (id 1) — body só `{"nome": ...}` | **200** — update **parcial**: só `nome` muda; `email`/`funcao` intactos (`atualizadoEm` preenchido) |
 
-| # | Request | Prova |
-|---|---------|-------|
-| 1 | **1 · Usuários** → `POST` e-mail `@gmail.com` | **400** `EMAIL_INSTITUCIONAL_INVALIDO` (RN01) |
-| 2 | `POST` e-mail duplicado (`aluno@upe.br`) | **409** `EMAIL_JA_CADASTRADO` |
-| 3 | `GET /usuarios?funcao=PROFESSOR` | **200** lista (base do RN10/wizard) |
-| 4 | **2 · Alunos** → `GET /{usuarioAlunoId}` (perfil do seed) | **200** perfil 1:1 via `MapsId` (CRA 8.50, curso...) |
+*Fala:* tabela `usuarios` guarda a identidade (nome, e-mail, senha hash, papel); e-mail institucional e filtro por papel saem de consultas de negócio no repository.
 
-## Bloco 3 — Submissões: ciclo de vida (Issue 5 — módulo central) · 4 min
+## Bloco 2 — Alunos (R · C) · 1 min
 
-Todos no header `X-Usuario-Id` (D1 — sem auth no cp3).
+Pasta **Alunos**. Perfil acadêmico **1:1 com `MapsId`** — a tabela `alunos` **não tem** coluna nome/e-mail: pega emprestada a PK do usuário.
 
-| # | Request (pasta **5 · Submissões**) | Prova |
-|---|-------------------------------------|-------|
-| A1 | `POST /api/submissoes` rascunho no Edital A | **201** + `Location`; nasce **RASCUNHO** sem protocolo (DER v3) |
-| A2 | repetir A1 (mesmo aluno+edital) | **409** `SUBMISSAO_DUPLICADA` (**RN08**) |
-| A3 | `orientadorId` = aluno | **400** `ORIENTADOR_INVALIDO` (**RN10**) |
-| A4 | `POST /enviar` sem responder/termo | **409** `ENVIO_INCOMPLETO` com a **lista de pendências** (**RN12**) |
-| A5 | `PUT` respostas+`termoAceite:true` | **200** (upsert por `uk_resposta_unica`) |
-| A6 | `POST /enviar` | **200** `RECEBIDA` + protocolo **`#2026-0001`** (**RN02/RN05**) + snapshot (**RN09**) — anote `submissaoIdA` |
-| B  | rascunho no Edital C (janela 2025 encerrada) → `enviar` | **409** `FORA_DO_PRAZO` (**RN05**) |
-| C  | rascunho no Edital B (exigências obrigatórias) → `enviar` | **409** `ENVIO_INCOMPLETO` **listando os 2 documentos** — segue bloqueado até a pasta Documentos |
-| D1–D7 | `PATCH /status` pelo **gerenciador** (id 3): `EM_ANALISE` → `PENDENTE_DOCUMENTOS` (motivo) → *(após Documentos)* `EM_ANALISE` → `APROVADA` | Transições da **tabela RF16**; sem motivo → **400** `MOTIVO_OBRIGATORIO` (**RN04**); com header de aluno → **400** `PERMISSAO_INSUFICIENTE` (§9.2); `RASCUNHO→APROVADA` → **409** `TRANSICAO_INVALIDA` |
-| E3 | `GET /{submissaoIdA}/historico` | **200** timeline com os **5 eventos** da sequência D1–D7 (envio + 4 PATCHs: statusAnterior/Novo, observação, dataHora, usuário) — **RF12/RN07** (a variante de 4 eventos corresponde a parar em APROVADA logo após a pendência) |
-| E5 | `GET /api/gerenciador/submissoes?status=` | **200** painel do gerenciador (**RF14**) |
-| F1–F2 | `PUT /api/alunos/{id}` muda `craAtual` → `GET /{submissaoIdA}` | `craMomento` **continua 8.50** — snapshot imutável do mérito (**RN09**) |
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `GET /api/alunos/{alunoId}` (id 1, seed) | **200** — perfil: `cpf`, `matricula`, `curso`, **`craAtual=8.50`** |
+| 2 | `POST /api/alunos` — body com `usuarioId=4` | **201** — **prova do `MapsId`: o id do aluno é o mesmo do usuário (4)**; duplicar o request → **409** `ALUNO_JA_EXISTENTE` (1 perfil por usuário) |
 
-## Bloco 4 — Documentos (Issue 6) · 2 min
+*Fala:* sem nome/e-mail no cadastro de aluno porque já são do usuário — normalização, uma PK compartilhada (`alunos.usuario_id` é PK **e** FK).
 
-Sequência recomendada: deixe o rascunho do **Edital B** ainda em `RASCUNHO` (não envoie antes da pasta 6).
+## Bloco 3 — Programas de Bolsa (R · R · R · C · U) · 1,5 min
 
-| # | Request (pasta **6 · Documentos**) | Prova |
-|---|-------------------------------------|-------|
-| D1 | `POST /{submissaoBId}/documentos` multipart `arquivo` + `tipoDocumento=HISTORICO_ESCOLAR` (PDF local) | **201** com `statusValidacao=PENDENTE` (**RF09/D7**) — anote `documentoId` |
-| D2 | mesmo request com arquivo `.txt` | **400** `ARQUIVO_INVALIDO` |
-| D3 | `tipoDocumento=OUTRO` sem `descricaoPersonalizada` | **400** `DESCRICAO_OBRIGATORIA` (**RN11**) |
-| D4 | `COMPROVANTE_MATRICULA` (PDF) | **201** — agora `POST /{submissaoBId}/enviar` sobre a submissão desbloqueia (**RN12** completude) |
-| D6 | `GET /api/documentos/{documentoId}/download` | **200** `application/pdf`, bytes idênticos ao upload |
-| D8 | `PATCH /api/documentos/{documentoId}/status` VALIDO (gerenciador) | **200** — validação do anexo no painel (**RF15**) |
-| D9 | idem com header de aluno | **400** `PERMISSAO_INSUFICIENTE` (§9.2) |
+Pasta **Programas de Bolsa**. Catálogo com **visibilidade por janela de datas** (RF05).
 
-Na sequência, volte à pasta 5 para `D6: PENDENTE_DOCUMENTOS → EM_ANALISE → APROVADA` e feche o histórico de 4 eventos.
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `GET /api/programas?page=0&size=10` | **200** — listagem **paginada** (`Page`, metadados de paginação no JSON) |
+| 2 | `GET /api/programas/abertos` | **200** — vitrine pública: só o PIBIC do seed está na janela; **rode de novo após o nº 4** — a Monitoria (janela 01/11–31/12/2026) entra na lista |
+| 3 | `GET /api/programas/{programaId}` (id 1) | **200** — detalhe com `valorMensal`, `vagas`, datas |
+| 4 | `POST /api/programas` — "Monitoria de Algoritmos" | **201** + `Location` — **id 2** |
+| 5 | `PUT /api/programas/{programaId}` (id 1) | **200** — update completo |
 
-## Bloco 5 — Notificações (Issue 6) · 1 min
+*Fala:* regra de janela (RF05) mora no **Service/Repository** — `/abertos` filtra por `dataAbertura ≤ agora ≤ dataLimite` (provada também na coleção completa com 400 `PERIODO_INVALIDO`).
 
-| # | Request (pasta **7 · Notificações**) | Prova |
-|---|---------------------------------------|-------|
-| N1 | `GET /api/notificacoes` (header do aluno) | **200** — inbox com 1 notificação **por transição de status** (hook conectado na mesma transação — RF17) |
-| N2 | `?somenteNaoLidas=true` | **200** — filtra |
-| N3–N4 | `PATCH /{notificacaoId}/lida` (duas vezes) | **200** — idempotente (decisão do PR) |
-| N5 | `PATCH` com header de outro usuário | **404** — não vazar inbox alheio |
+## Bloco 4 — Editais (R · R · C) · 1 min
 
-## Bloco 6 — Fechamento (C1–C5 em uma frase cada)
+Pasta **Editais**.
 
-- **C1:** entidades JPA 1:1 com o DER v3 (auditoria no PR da Issue 1 — `docs/auditoria-entidades-der.md`); `submissoes.protocolo` nasce null e é preenchido no envio (prova no bloco 3).
-- **C2:** **11 repositories** Spring Data com consultas de negócio (uniqs, janelas, painéis — C2).
-- **C3:** as RNs listadas por módulo moram **nos Services** (nenhum `if` de negócio nos controllers) — demose acima mostrou cada código de erro do DRS.
-- **C4:** 201+`Location` · 200 · 204 · 400/404/409 coerentes via `GlobalExceptionHandler` base.
-- **C5:** esta coleção (Insomnia/Postman) é a evidência; roteiro cobre todos os 5 critérios em < 10 min.
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `GET /api/editais/{editalAId}` (id 1) | **200** — Edital A: nº/ano, janela **aberta**, link com o programa |
+| 2 | `GET /api/editais/{editalAId}/formulario` (id 1) | **200** — **pergunta ordenada** + exigências do edital (é justamente o que o envio valida) |
+| 3 | `POST /api/editais` — nº 11/2026, janela aberta | **201** + `Location` — **edital id 5** |
 
-> **Testes automatizados como reforço (D8):** `./mvnw test` roda a suite com H2 — inclui os fluxos de usuário/aluno, editais, submissões (RN08/RN10/RN03/RN05/RN09/RN12/RF16/RN04/§9.2), documentos e notificações.
+*Fala:* unicidade nº+ano (uk do DER) e janela invertida → 400/409 — provas de erro na coleção completa (`EDITAL_DUPLICADO`, `JANELA_INVALIDA`).
+
+## Bloco 5 — Submissões (R · C · R · U · finalizar) · 2 min · módulo central
+
+Pasta **Submissões**. Todos os requests exigem o header **`X-Usuario-Id: 1`** (aluno — D1).
+
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `GET /api/submissoes/minhas` | **200** `[]` — lista do aluno **nunca é null** |
+| 2 | `POST /api/submissoes` (rascunho, Edital A, `orientadorId=2` — professor) | **201** + `Location` — nasce **`RASCUNHO`**, **sem protocolo** (protocolo só no envio), header do aluno |
+| 3 | `GET /api/submissoes/{submissaoId}` (id 1 — rode duas vezes: no rascunho e após enviar) | **200** — detalhe: status, respostas, snapshot (null em rascunho) |
+| 4 | `PUT /api/submissoes/{submissaoId}` — respostas (pergunta 1) + `termoAceite=true` | **200** — upsert por `perguntaId` (idempotente: repetir o PUT não duplica) |
+| 5 | `POST /api/submissoes/{submissaoId}/enviar` | **200** — status **`RECEBIDA`** + protocolo **`#2026-0001`** (RN02, ano corrente) + **snapshot do mérito** CRA 8.50 (RN09) → **também cria a notificação** (RF17 — hook na mesma transação) |
+
+*Fala:* ciclo de vida completo num só módulo: rascunho → completar → enviar. O protocolo nasce null e é preenchido só no `enviar` (a prova é comparar o GET do nº 3 antes/depois). Enviar sem a resposta/termo → **409** `ENVIO_INCOMPLETO` (coleção completa).
+
+## Bloco 6 — Documentos (C · R) · 1 min
+
+Pasta **Documentos**. Header **`X-Usuario-Id: 1`** (dono do rascunho). Precisa de **um PDF local** (qualquer ≤ 5 MB) para o campo `arquivo`.
+
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `POST /api/submissoes/{submissaoId}/documentos` — multipart: `arquivo` (PDF) + `tipoDocumento=HISTORICO_ESCOLAR` | **201** — `statusValidacao=PENDENTE` (**documentoId=1**) |
+| 2 | `GET /api/submissoes/{submissaoId}/documentos` | **200** — metadados (tipo, nome original, tamanho, mime, status — RF15 depois valida na coleção completa) |
+
+*Fala:* anexos persistem em disco (`armazenamento`) com metadados no banco; só `application/pdf`, máx 5 MB (provas: `ARQUIVO_INVALIDO`, `ARQUIVO_MUITO_GRANDE` — coleção completa).
+
+## Bloco 7 — Notificações (R · U) · 30 s
+
+Pasta **Notificações**. Header **`X-Usuario-Id: 1`** (aluno).
+
+| # | Request | Demonstração |
+|---|---------|--------------|
+| 1 | `GET /api/notificacoes` | **200** — inbox com a notificação do **envio** do bloco 5: "Submissão #2026-0001: RASCUNHO → RECEBIDA" |
+| 2 | `PATCH /api/notificacoes/{notificacaoId}/lida` (id 1) | **200** + body — lida (**idempotente**: rode duas vezes → 200 nas duas) |
+
+*Fala:* notificação por transição, engatilhada **na mesma transação** do envio (RF17) — a prova de transições do gerenciador (RF16, PATCH /status) está na coleção completa.
+
+---
+
+## Cobertura por bloco (referência rápida para a arguição)
+
+| Critério | Prova neste roteiro |
+|----------|---------------------|
+| **C1** — Entidades ↔ DER | Bloco 2: usuário criado (4) → aluno com **o mesmo id** (`MapsId`); protocolo null → preenchido no envio (bloco 5) |
+| **C2** — Repositories Spring Data com consultas de negócio | Blocos 1/3: filtro por função, paginação, `/abertos` por janela |
+| **C3** — Regras nos Services (nada de `if` no controller) | Bloco 5: protocolo RN02, snapshot RN09, notificação RF17 na mesma transação |
+| **C4** — Controllers HTTP coerentes | 201+`Location` nos POSTs · 200 nos GET/PUT/PATCH · D2 `{status, erro, mensagem}` nos erros (plano B) |
+| **C5** — Evidência (CRUD via coleção) | Essa demo: as 23 requests essenciais (~8 min) |
+
+## Plano B — contra-provas de erro (coleção completa `sgba-checkpoint3.insomnia.json`, se pedirem)
+
+| Request (pasta) | Esperado |
+|-----------------|----------|
+| `POST /api/usuarios` @gmail.com (1) | 400 `EMAIL_INSTITUCIONAL_INVALIDO` (RN01) |
+| `POST /api/usuarios` e-mail duplicado (1) | 409 `EMAIL_JA_CADASTRADO` |
+| `POST /api/programas` janela invertida (3) | 400 `PERIODO_INVALIDO` |
+| `POST /api/editais` nº/ano duplicado (4) | 409 `EDITAL_DUPLICADO` |
+| `POST /api/submissoes` Edital C (5) e `enviar` | 409 `FORA_DO_PRAZO` (RN05) |
+| `POST /enviar` sem respostas/termo (5) | 409 `ENVIO_INCOMPLETO` com pendências (RN12) |
+| `PATCH /api/submissoes/{id}/status` gerenciador (5) | RF16: `EM_ANALISE` → `PENDENTE_DOCUMENTOS` (motivo) → `APROVADA`; sem motivo → 400 `MOTIVO_OBRIGATORIO` (RN04); aluno → 400 `PERMISSAO_INSUFICIENTE` |
+| `POST` documento `.txt` (6) · `PATCH /{id}/status` (6) | 400 `ARQUIVO_INVALIDO` · 200 com `observacao` (RF15) |
+| `POST /{id}/encerrar` ×2 (3) | 200 → 409 `PROGRAMA_JA_ENCERRADO` |
+
+> **Testes automatizados como reforço (D8):** `./mvnw test` roda a suíte com H2 — usuários/alunos, editais, submissões (RN08/RN10/RN05/RN09/RN12/RF16/§9.2), documentos e notificações.
