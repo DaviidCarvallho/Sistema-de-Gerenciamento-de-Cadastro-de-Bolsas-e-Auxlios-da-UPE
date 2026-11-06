@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.edu.upe.sgba.dto.DecisaoRequest;
 import br.edu.upe.sgba.dto.HistoricoResponse;
 import br.edu.upe.sgba.dto.SubmissaoDetalheResponse;
 import br.edu.upe.sgba.dto.SubmissaoEnviadaResponse;
@@ -76,5 +77,14 @@ public class SubmissaoController {
             @PathVariable Long id,
             @RequestHeader(value = "X-Usuario-Id", required = false) Long usuarioId) {
         return service.historico(id, usuarioId);
+    }
+
+    /** RF16 pelo gerenciador (§9.2) — requer função GERENCIADOR; 409 transição, 400 motivo. */
+    @org.springframework.web.bind.annotation.PatchMapping("/{id}/status")
+    public SubmissaoDetalheResponse mudarStatus(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-Usuario-Id", required = false) Long usuarioId,
+            @RequestBody DecisaoRequest req) {
+        return service.mudarStatus(id, usuarioId, req);
     }
 }

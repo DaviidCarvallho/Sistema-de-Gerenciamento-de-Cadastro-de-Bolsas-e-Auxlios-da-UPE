@@ -4,15 +4,19 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.Set;
+import java.util.EnumMap;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import br.edu.upe.sgba.dto.DecisaoRequest;
 import br.edu.upe.sgba.dto.HistoricoResponse;
 import br.edu.upe.sgba.dto.SubmissaoDetalheResponse;
 import br.edu.upe.sgba.dto.SubmissaoEnviadaResponse;
@@ -265,6 +269,57 @@ public class SubmissaoService {
         evento.setDataHora(LocalDateTime.now());
         evento.setUsuario(usuario);
         historicosRepository.save(evento);
+    }
+
+    // ============================== RF16/RN04/§9.2 — status pelo gerenciador ==============================
+
+    /** Tabela RF16 — únicas transições válidas via PATCH (RASCUNHO sai só pelo /enviar). */
+    private static final Map<StatusSubmissao, Set<StatusSubmissao>> TRANSICOES_PATCH = new EnumMap<>(
+            Map.of(StatusSubmissao.RECEBIDA, Set.of(StatusSubmissao.EM_ANALISE),
+                    StatusSubmissao.EM_ANALISE, Set.of(StatusSubmissao.APROVADA,
+                            StatusSubmissao.INDEFERIDA, StatusSubmissao.PENDENTE_DOCUMENTOS),
+                    StatusSubmissao.PENDENTE_DOCUMENTOS, Set.of(StatusSubmissao.EM_ANALISE,
+                            StatusSubmissao.APROVADA, StatusSubmissao.INDEFERIDA),
+                    StatusSubmissao.RASCUNHO, Set.of(),
+                    StatusSubmissao.APROVADA, Set.of(),
+                    StatusSubmissao.INDEFERIDA, Set.of()));
+
+    /** PATCH /{id}/status — exige GERENCIADOR (§9.2) + tabela RF16 + RN04. */
+    @Transactional
+    public SubmissaoDetalheResponse mudarStatus(Long id, Long gerenciadorId, DecisaoRequest req) {
+        Submissao s = buscar(id);
+        Usuario gerenciador = usuarios.exigeFuncao(gerenciadorId, FuncaoUsuario.GERENCIADOR); // 400/404 §9.2
+        if (req == null || req.novoStatus() == null) {
+            throw Validacao.argumentoInvalido("Informe 'novoStatus'");
+        }
+        StatusSubmissao anterior = s.getStatus();
+        Set<StatusSubmissao> permitidos = TRANSICOES_PATCH.getOrDefault(anterior, Set.of());
+        if (!permitidos.contains(req.novoStatus()) || anterior.equals(req.novoStatus())) {       // RF16
+            throw new RegraNegocioException("TRANSICAO_INVALIDA",
+                    "Transição '" + anterior + "' → '" + req.novoStatus() + "' não é permitida (RF16)");
+        }
+        if ((req.novoStatus() == StatusSubmissao.PENDENTE_DOCUMENTOS
+                || req.novoStatus() == StatusSubmissao.INDEFERIDA)
+                && (req.motivo() == null || req.motivo().isBlank())) {                           // RN04
+            throw new RegraNegocioException(HttpStatus.BAD_REQUEST, "MOTIVO_OBRIGATORIO",
+                    "O motivo é obrigatório para os status PENDENTE_DOCUMENTOS e INDEFERIDA");
+        }
+
+        s.setStatus(req.novoStatus());
+        Submissao salva = submissoes.save(s);
+        registrarHistorico(salva, anterior, req.novoStatus(), req.motivo(), gerenciador);        // RN07
+        notificacoes.notificarTransicao(s.getAluno().getId(), s.getId(),                         // hook RF17
+                "Submissão " + s.getProtocolo() + ": " + anterior + " → " + req.novoStatus()
+                        + (req.motivo() != null ? " — Motivo: " + req.motivo() : ""));
+        return montarDetalhe(salva);
+    }
+
+    /** RF14 — painel do gerenciador com filtros combináveis (D4). */
+    @Transactional(readOnly = true)
+    public Page<SubmissaoPainelResponse> listarGerenciador(StatusSubmissao status, Long editalId,
+            Long programaId, Pageable pageable) {
+        return submissoes.filtrar(status, editalId, programaId, pageable)
+                .map(s -> SubmissaoPainelResponse.from(s, documentosRepository.countBySubmissaoId(s.getId())));
     }
 
     // ============================== helpers ==============================

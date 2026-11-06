@@ -147,6 +147,17 @@ class SubmissaoApiTest {
         return extrairId(corpo);
     }
 
+    private Long criarGerenciador() {
+        String corpo = rest.post().uri("/api/usuarios")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"nome\":\"Gerente Teste\",\"email\":\"gr." + sufixoUnico()
+                        + "@upe.br\",\"senha\":\"x\",\"funcao\":\"GERENCIADOR\"}")
+                .exchange()
+                .expectStatus().isEqualTo(201)
+                .returnResult(String.class).getResponseBody();
+        return extrairId(corpo);
+    }
+
     private String corpoRascunho(Long editalId) {
         return "{\"editalId\":" + editalId + ",\"tituloProjeto\":\"Projeto " + sufixoUnico()
                 + "\",\"projetoResumo\":\"Resumo do projeto\",\"planoTrabalho\":\"Plano\"}";
@@ -431,5 +442,135 @@ class SubmissaoApiTest {
         Matcher m = Pattern.compile("#\\d{4}-\\d{4}").matcher(corpo);
         assertTrue(m.find(), "protocolo no corpo: " + corpo);
         return m.group();
+    }
+
+    // ============================== T6 — RF16 (PATCH status) + RN04 + §9.2 + RF14 ==============================
+
+    /** Helper do fluxo do gerenciador: PATCH /api/submissoes/{id}/status. */
+    private String patchStatus(Long usuarioId, Long submissaoId, String body) {
+        return rest.patch().uri("/api/submissoes/" + submissaoId + "/status")
+                .header("X-Usuario-Id", String.valueOf(usuarioId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .exchange()
+                .returnResult(String.class)
+                .getResponseBody();
+    }
+
+    private String patchStatusHeader(Long usuarioId, Long submissaoId, String body, int statusEsperado) {
+        return rest.patch().uri("/api/submissoes/" + submissaoId + "/status")
+                .header("X-Usuario-Id", String.valueOf(usuarioId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .exchange()
+                .expectStatus().isEqualTo(statusEsperado)
+                .returnResult(String.class)
+                .getResponseBody();
+    }
+
+    @Test
+    void patchStatus_fluxoCompleto_historicoCom4EventosENotificacao() {
+        Long alunoId = criarAluno();
+        Long gerenciadorId = criarGerenciador();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
+        postEnviar(alunoId, submissaoId, 200);
+
+        patchStatusHeader(gerenciadorId, submissaoId,
+                "{\"novoStatus\":\"EM_ANALISE\"}", 200);
+        String motivo = "Falta comprovante de matricula";
+        patchStatusHeader(gerenciadorId, submissaoId, "{\"novoStatus\":\"PENDENTE_DOCUMENTOS\",\"motivo\":\"" + motivo + "\"}", 200);
+        patchStatusHeader(gerenciadorId, submissaoId, "{\"novoStatus\":\"APROVADA\"}", 200);
+
+        rest.get().uri("/api/submissoes/" + submissaoId + "/historico")
+                .header("X-Usuario-Id", alunoId.toString())
+                .exchange()
+                .expectStatus().isEqualTo(200)
+                .expectBody()
+                .jsonPath("$.length()").isEqualTo(4)
+                .jsonPath("$[0].statusAnterior").isEqualTo("PENDENTE_DOCUMENTOS")
+                .jsonPath("$[0].statusNovo").isEqualTo("APROVADA");
+
+        // RF17 — notificações criadas nas transições + marcar-lida idempotente
+        String inbox = rest.get().uri("/api/notificacoes")
+                .header("X-Usuario-Id", alunoId.toString())
+                .exchange()
+                .expectStatus().isEqualTo(200)
+                .returnResult(String.class).getResponseBody();
+        assertTrue(inbox.contains(motivo), "motivo aparece na notificação: " + inbox);
+        Matcher idLida = Pattern.compile("\"id\":(\\d+)").matcher(inbox);
+        assertTrue(idLida.find(), "id de notificação no inbox: " + inbox);
+        Long notificacaoId = Long.parseLong(idLida.group(1));
+        rest.patch().uri("/api/notificacoes/" + notificacaoId + "/lida")
+                .header("X-Usuario-Id", alunoId.toString())
+                .exchange().expectStatus().isEqualTo(200);
+        rest.patch().uri("/api/notificacoes/" + notificacaoId + "/lida")
+                .header("X-Usuario-Id", alunoId.toString())
+                .exchange().expectStatus().isEqualTo(200); // idempotente
+    }
+
+    @Test
+    void patchStatus_rascunhoParaAprovada_retorna409() {
+        Long alunoId = criarAluno();
+        Long gerenciadorId = criarGerenciador();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = submeter(alunoId, editalId);
+
+        String corpo = patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"APROVADA\"}");
+        assertTrue(corpo.contains("TRANSICAO_INVALIDA"), "esperava TRANSICAO_INVALIDA: " + corpo);
+    }
+
+    @Test
+    void patchStatus_semMotivoParaPendente_retorna400() {
+        Long alunoId = criarAluno();
+        Long gerenciadorId = criarGerenciador();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
+        postEnviar(alunoId, submissaoId, 200);
+        patchStatusHeader(gerenciadorId, submissaoId, "{\"novoStatus\":\"EM_ANALISE\"}", 200);
+
+        String corpo = patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"PENDENTE_DOCUMENTOS\"}");
+        assertTrue(corpo.contains("MOTIVO_OBRIGATORIO"), "esperava MOTIVO_OBRIGATORIO: " + corpo);
+    }
+
+    @Test
+    void patchStatus_headerDeAluno_retorna400() {
+        Long alunoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = submeter(alunoId, editalId);
+
+        String corpo = patchStatus(alunoId, submissaoId, "{\"novoStatus\":\"RECEBIDA\"}");
+        assertTrue(corpo.contains("PERMISSAO_INSUFICIENTE"), "esperava PERMISSAO_INSUFICIENTE: " + corpo);
+    }
+
+    @Test
+    void patchStatus_semHeader_retorna400() {
+        Long alunoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = submeter(alunoId, editalId);
+
+        String corpo = rest.patch().uri("/api/submissoes/" + submissaoId + "/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"novoStatus\":\"EM_ANALISE\"}")
+                .exchange()
+                .returnResult(String.class)
+                .getResponseBody();
+        assertTrue(corpo.contains("ARGUMENTO_INVALIDO"), "esperava ARGUMENTO_INVALIDO: " + corpo);
+    }
+
+    @Test
+    void gerenciadorPainel_filtroStatus_retorna200EPaginado() {
+        Long alunoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
+        postEnviar(alunoId, submissaoId, 200);
+
+        rest.get().uri("/api/gerenciador/submissoes?status=RECEBIDA&editalId=" + editalId)
+                .header("X-Usuario-Id", alunoId.toString()) // consulta aberta no cp3 (decisão documentada)
+                .exchange()
+                .expectStatus().isEqualTo(200)
+                .expectBody()
+                .jsonPath("$.totalElements").isNumber()
+                .jsonPath("$.content[0].programaTitulo").isNotEmpty();
     }
 }
