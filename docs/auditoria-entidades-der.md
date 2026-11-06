@@ -1,7 +1,9 @@
 # Auditoria de Entidades × DER v3 (C1) — Checkpoint 3
 
-**Fonte normativa:** `sgba-frontend/docs/der.dbml` **v3** (mudanças v2→v3 em
-`sgba-frontend/docs/der-mudancas.md`). Cada divergência encontrada pela auditoria campo-a-campo
+**Fonte normativa:** `docs/der.dbml` **v3** — cópia sincronizada do repo do front-end
+(`sgba-frontend/docs/der.dbml`, mantida aqui para a auditoria ser autocontida neste repo).
+Mudanças v2→v3 em `docs/der-mudancas.md` (seção v2→v3) e decisões de modelagem em
+`docs/der-justificativas.md`. Cada divergência encontrada pela auditoria campo-a-campo
 foi **corrigida na entidade** (entidades nunca ficam à frente do DER — decisão §9.1).
 
 ## Veredicto por entidade (11 entidades + 7 enums)
@@ -53,6 +55,7 @@ A varredura campo-a-campo **revelou e corrigiu** os seguintes `nullable` diverge
 
 ## Árvore de rastreabilidade
 
-- `sgba-frontend/docs/der.dbml` (v3) — fonte;
-- `sgba-frontend/docs/der-mudancas.md` (seção v2→v3) — mudanças 1–3 justificadas;
+- `docs/der.dbml` (v3) — fonte; cópia sincronizada de `sgba-frontend/docs/der.dbml`;
+- `docs/der-mudancas.md` (seção v2→v3) — mudanças 1–3 justificadas;
+- `docs/der-justificativas.md` — decisões de modelagem (tabela única, status+histórico, enums, metadados de arquivo);
 - entidades: `src/main/java/br/edu/upe/sgba/entity/**` — onde as correções acima foram aplicadas.

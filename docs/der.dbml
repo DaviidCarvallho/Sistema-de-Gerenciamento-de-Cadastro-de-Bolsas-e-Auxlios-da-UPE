@@ -1,0 +1,255 @@
+// ============================================================
+// SGBA — Sistema de Gerenciamento de Bolsas e Auxílios (UPE)
+// DER — Modelo Lógico v3 (fidelização com as entidades JPA do Checkpoint 3)
+// Fonte: requisitos.md (seção 7) + RNs e RFs do DRS
+// Formato: DBML (https://dbml.dbdiagram.io/docs) — cole em dbdiagram.io
+// Mudanças v2→v3: ver docs/der-mudancas.md (seção "v2 -> v3")
+// ============================================================
+
+// ---------- Enums (domínios fechados = normalização de valores) ----------
+
+Enum funcao_usuario {
+  ALUNO
+  PROFESSOR
+  GERENCIADOR
+}
+
+Enum genero {
+  FEMININO
+  MASCULINO
+  OUTRO
+  PREFIRO_NAO_INFORMAR
+}
+
+Enum categoria_programa {
+  INICIACAO_CIENTIFICA
+  MONITORIA
+  EXTENSAO
+  AUXILIO
+  APOIO_PESQUISA
+}
+
+Enum status_programa {
+  ABERTO
+  EM_BREVE
+  ENCERRADO
+}
+
+Enum status_submissao {
+  RASCUNHO
+  RECEBIDA
+  EM_ANALISE
+  PENDENTE_DOCUMENTOS
+  APROVADA
+  INDEFERIDA
+}
+
+Enum tipo_documento {
+  HISTORICO_ESCOLAR
+  COMPROVANTE_MATRICULA
+  CARTA_INTENCAO
+  PLANO_TRABALHO
+  OUTRO
+}
+
+Enum status_validacao_documento {
+  PENDENTE
+  VALIDO
+  VENCIDO
+  INCOMPLETO
+}
+
+// ---------- Tabelas ----------
+
+Table usuarios {
+  id                    bigint [pk, increment]
+  nome                  varchar(150) [not null]
+  email                 varchar(255) [not null, unique] // RN01: domínio @upe.br validado na aplicação
+  senha_hash            varchar(255) [not null]
+  funcao                funcao_usuario [not null] // RBAC: ROLE_ALUNO / ROLE_PROFESSOR / ROLE_GERENCIADOR
+  criado_em             timestamp [not null, default: `now()`] // v3: rastro de auditoria (entidades já têm)
+  atualizado_em         timestamp [null] // v3: rastro de auditoria (entidades já têm)
+
+  Note: 'Identidade e autenticação. Sem dados acadêmicos — ficam em `alunos` (1:1).'
+}
+
+Table alunos {
+  usuario_id            bigint [pk] // PK = FK para usuarios.id
+  cpf                   char(11) [not null, unique]
+  rg                    varchar(20) [null]
+  data_nascimento       date [null]
+  nacionalidade         varchar(50) [null, default: 'Brasileira']
+  genero                genero [null]
+  telefone              varchar(20) [null]
+  matricula             varchar(20) [not null, unique]
+  curso                 varchar(100) [not null]
+  periodo_atual         smallint [null] // mutável: valor corrente
+  cra_atual             decimal(4,2) [null] // mutável: valor corrente (RF02)
+  unidade_academica     varchar(50) [null]
+  semestre_ingresso     varchar(10) [null] // ex.: '2023.1'
+  // Endereço embutido (suficiente para Checkpoint 2; extrair p/ tabela própria se precisar histórico)
+  logradouro            varchar(150) [null]
+  numero                varchar(20) [null]
+  complemento           varchar(100) [null]
+  bairro                varchar(100) [null]
+  cidade                varchar(100) [null]
+  uf                    char(2) [null]
+  cep                   char(8) [null]
+
+  Note: 'Perfil acadêmico do ALUNO (1:1 com usuarios). Guarda o estado ATUAL; o estado NO MOMENTO da candidatura é congelado em submissoes (snapshot).'
+}
+
+Table programas_bolsa {
+  id                    bigint [pk, increment]
+  titulo                varchar(150) [not null]
+  categoria             categoria_programa [not null]
+  descricao             text [null]
+  valor_mensal          decimal(10,2) [not null]
+  vagas                 smallint [not null, default: 0]
+  periodo_letivo        varchar(10) [not null] // ex.: '2025.1'
+  data_abertura         timestamp [not null] // novo: início da visibilidade/inscrições
+  data_limite           timestamp [not null] // RN05: prazo de envio (visibilidade geral)
+  status                status_programa [not null, default: 'EM_BREVE']
+  criado_em             timestamp [not null, default: `now()`]
+
+  Note: 'Programas de bolsa/auxílio gerenciados pela PROPG (RF03). Prazo efetivo por edição fica em editais.data_fim_submissoes.'
+}
+
+Table editais {
+  id                    bigint [pk, increment]
+  numero_edital         varchar(30) [not null]
+  ano                   smallint [not null]
+  data_publicacao       date [not null]
+  data_inicio_submissoes timestamp [not null] // novo: RN05 passa a ser validado aqui
+  data_fim_submissoes   timestamp [not null] // novo: prazo da edição
+  caminho_arquivo_pdf   varchar(500) [null] // v3: nullable — edital é criado por JSON (criação) e o PDF oficial é anexado depois, no upload; preenchido no upload (RNF06)
+  programa_id           bigint [not null] // FK
+
+  Note: 'Edital oficial (PDF) = edição de um programa (RF04). Cada edição tem prazo e perguntas próprias.'
+
+  indexes {
+    (numero_edital, ano) [unique, name: 'uk_edital_numero_ano']
+  }
+}
+
+Table perguntas_edital {
+  id                    bigint [pk, increment]
+  edital_id             bigint [not null] // FK
+  enunciado             text [not null] // ex.: 'Justificativa do auxílio?'
+  obrigatoria           boolean [not null, default: true]
+  ordem_exibicao        smallint [not null]
+
+  Note: 'Formulário dinâmico por edital: cada edição define o que pede.'
+
+  indexes {
+    (edital_id, ordem_exibicao) [unique, name: 'uk_pergunta_ordem']
+  }
+}
+
+Table exigencias_edital {
+  id                    bigint [pk, increment]
+  edital_id             bigint [not null] // FK
+  tipo_documento        tipo_documento [not null] // qual doc esta edição exige
+  obrigatorio           boolean [not null, default: true]
+
+  Note: 'Define o que cada edital exige (fecha itens 6/7: edital genérico). Validação de envio confere documentos_anexo x exigencias.'
+
+  indexes {
+    (edital_id, tipo_documento) [unique, name: 'uk_exigencia_edital_tipo']
+  }
+}
+
+Table submissoes {
+  id                    bigint [pk, increment]
+  protocolo             varchar(10) [null, unique] // v3: nullable — nulo durante RASCUNHO, gerado no envio (RN02 #AAAA-XXXX); UK garante unicidade após o envio
+  status                status_submissao [not null, default: 'RASCUNHO'] // cache do último evento (ver Note)
+  titulo_projeto        varchar(200) [null] // formulário: título do projeto
+  projeto_resumo        text [null]
+  plano_trabalho        text [null] // texto do plano; o PDF vai em documentos_anexo
+  termo_aceite          boolean [not null, default: false] // RF07 etapa 5
+  data_envio            timestamp [null] // nulo enquanto RASCUNHO
+  aluno_id              bigint [not null] // FK -> alunos.usuario_id
+  edital_id             bigint [not null] // FK -> editais.id (troca de programa_id)
+  orientador_id         bigint [null] // FK -> usuarios.id (funcao=PROFESSOR)
+  // Snapshot congelado no envio — preserva CRA/período/curso do momento (não muda se o aluno atualizar o perfil)
+  curso_momento         varchar(100) [null]
+  periodo_momento       smallint [null]
+  cra_momento           decimal(4,2) [null]
+  unidade_momento       varchar(50) [null]
+  criado_em             timestamp [not null, default: `now()`]
+  atualizado_em         timestamp [not null, default: `now()`]
+
+  Note: 'Candidatura de um aluno a um EDITAL (RF07, RF11). status = cache do último historicos_status; escrita sempre em transação (INSERT histórico + UPDATE status). Snapshot garante auditoria do mérito no momento do envio.'
+
+  indexes {
+    (aluno_id, edital_id) [unique, name: 'uk_aluno_edital']
+  }
+}
+
+Table respostas_submissao {
+  id                    bigint [pk, increment]
+  submissao_id          bigint [not null] // FK
+  pergunta_id           bigint [not null] // FK -> perguntas_edital.id
+  resposta_texto        text [not null]
+
+  Note: 'Resposta de uma submissão a uma pergunta do edital (1 resposta por par).'
+
+  indexes {
+    (submissao_id, pergunta_id) [unique, name: 'uk_resposta_unica']
+  }
+}
+
+Table documentos_anexo {
+  id                    bigint [pk, increment]
+  tipo_documento        tipo_documento [not null]
+  descricao_personalizada varchar(255) [null] // obrigatório na aplicação quando tipo = OUTRO
+  nome_original         varchar(255) [not null]
+  caminho_arquivo       varchar(500) [not null] // RNF06: blob fora do banco
+  tamanho_bytes         bigint [not null] // RF09: validação até 5MB na aplicação
+  mime_type             varchar(100) [not null, default: 'application/pdf']
+  status_validacao      status_validacao_documento [not null, default: 'PENDENTE'] // RF15
+  observacao_validacao  varchar(500) [null] // motivo apontado pela comissão (RF13)
+  submissao_id          bigint [not null] // FK
+
+  Note: 'Metadados dos PDFs comprobatórios; o arquivo físico fica em disco (RNF06).'
+}
+
+Table historicos_status {
+  id                    bigint [pk, increment]
+  status_anterior       status_submissao [null] // nulo na criação da submissão
+  status_novo           status_submissao [not null]
+  observacao            varchar(1000) [null] // RN04: obrigatório para PENDENTE_DOCUMENTOS / INDEFERIDA
+  data_hora             timestamp [not null, default: `now()`]
+  submissao_id          bigint [not null] // FK
+  usuario_id            bigint [not null] // FK — autor da alteração
+
+  Note: 'Timeline imutável (append-only) para auditoria (RN07, RF12). Fonte da verdade histórica. Nunca UPDATE/DELETE.'
+}
+
+Table notificacoes {
+  id                    bigint [pk, increment]
+  destinatario_id       bigint [not null] // FK -> usuarios.id
+  submissao_id          bigint [null] // FK opcional: contexto da pendência/decisão
+  mensagem              varchar(1000) [not null] // ex.: 'Pendência documental apontada'
+  lida_em               timestamp [null] // nulo = não lida
+  criado_em             timestamp [not null, default: `now()`]
+
+  Note: 'Inbox do aluno (RF13/RF17). Evita depender só de e-mail polling.'
+}
+
+// ---------- Relacionamentos (cardinalidades) ----------
+
+Ref: alunos.usuario_id - usuarios.id                          // 1:1 perfil aluno
+Ref: editais.programa_id > programas_bolsa.id                // um programa possui N editais (1:N)
+Ref: perguntas_edital.edital_id > editais.id                 // um edital define N perguntas (1:N)
+Ref: exigencias_edital.edital_id > editais.id                 // um edital exige N tipos de documento (1:N)
+Ref: submissoes.aluno_id > alunos.usuario_id                // um aluno realiza N submissões (1:N), FK garante que só ALUNO submete
+Ref: submissoes.edital_id > editais.id                       // um edital recebe N submissões (1:N); programa via JOIN
+Ref: submissoes.orientador_id > usuarios.id                  // um professor orienta N submissões (1:N)
+Ref: respostas_submissao.submissao_id > submissoes.id        // uma submissão tem N respostas (1:N)
+Ref: respostas_submissao.pergunta_id > perguntas_edital.id   // uma pergunta recebe N respostas (1:N)
+Ref: documentos_anexo.submissao_id > submissoes.id           // uma submissão contém N documentos (1:N)
+Ref: historicos_status.submissao_id > submissoes.id          // uma submissão registra N eventos (1:N)
+Ref: historicos_status.usuario_id > usuarios.id              // um usuário altera N eventos (1:N)
+Ref: notificacoes.destinatario_id > usuarios.id              // um usuário recebe N notificações (1:N)
+Ref: notificacoes.submissao_id > submissoes.id               // uma submissão gera N notificações (1:N)
