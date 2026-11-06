@@ -1,0 +1,213 @@
+package br.edu.upe.sgba.service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import br.edu.upe.sgba.dto.SubmissaoDetalheResponse;
+import br.edu.upe.sgba.dto.SubmissaoPainelResponse;
+import br.edu.upe.sgba.dto.SubmissaoRascunhoRequest;
+import br.edu.upe.sgba.dto.SubmissaoUpdateRequest;
+import br.edu.upe.sgba.entity.Edital;
+import br.edu.upe.sgba.entity.PerguntaEdital;
+import br.edu.upe.sgba.entity.RespostaSubmissao;
+import br.edu.upe.sgba.entity.Submissao;
+import br.edu.upe.sgba.entity.Usuario;
+import br.edu.upe.sgba.entity.enums.FuncaoUsuario;
+import br.edu.upe.sgba.entity.enums.StatusSubmissao;
+import br.edu.upe.sgba.exception.RecursoNaoEncontradoException;
+import br.edu.upe.sgba.exception.RegraNegocioException;
+import br.edu.upe.sgba.repository.AlunoRepository;
+import br.edu.upe.sgba.repository.DocumentoAnexoRepository;
+import br.edu.upe.sgba.repository.EditalRepository;
+import br.edu.upe.sgba.repository.HistoricoStatusRepository;
+import br.edu.upe.sgba.repository.PerguntaEditalRepository;
+import br.edu.upe.sgba.repository.RespostaSubmissaoRepository;
+import br.edu.upe.sgba.repository.SubmissaoRepository;
+import br.edu.upe.sgba.service.port.NotificacaoPort;
+import lombok.RequiredArgsConstructor;
+
+/**
+ * Ciclo de vida da submissão (Issue 5 — módulo central): rascunho (RN08/RN10),
+ * edição (RN03), envio (RN02/RN05/RN09/RN12) e histórico append-only (RN07/RF12),
+ * transições de status do gerenciador (RF16/RN04/§9.2) e o painel (RF11/RF14).
+ *
+ * <p>Isolamento D1/RN06: o usuário vem do header {@code X-Usuario-Id}; consulta
+ * do recurso aceita dono <b>ou</b> GERENCIADOR, e o restante responde 404 sem
+ * vazar existência. Escritas do aluno exigem o dono.</p>
+ */
+@Service
+@RequiredArgsConstructor
+public class SubmissaoService {
+
+    private final SubmissaoRepository submissoes;
+    private final RespostaSubmissaoRepository respostasRepository;
+    private final HistoricoStatusRepository historicosRepository;
+    private final DocumentoAnexoRepository documentosRepository;
+    private final EditalRepository editaisRepository;
+    private final PerguntaEditalRepository perguntasRepository;
+    private final AlunoRepository alunosRepository;
+    private final UsuarioService usuarios;
+    private final NotificacaoPort notificacoes;
+
+    // ------------------------------ rascunho ------------------------------
+
+    /** POST — cria o rascunho: RN08 (1 por edital por aluno) e RN10 (orientador professor). */
+    @Transactional
+    public SubmissaoDetalheResponse criar(Long alunoId, SubmissaoRascunhoRequest req) {
+        exigirUsuarioId(alunoId);
+        if (req.editalId() == null) {
+            throw Validacao.argumentoInvalido("O campo 'editalId' é obrigatório");
+        }
+        Edital edital = editaisRepository.findById(req.editalId())
+                .orElseThrow(() -> RecursoNaoEncontradoException.porId("Edital", req.editalId()));
+        if (submissoes.existsByAlunoIdAndEditalId(alunoId, edital.getId())) {          // RN08
+            throw new RegraNegocioException("SUBMISSAO_DUPLICADA",
+                    "Aluno já possui submissão para este edital");
+        }
+        Usuario orientador = validarOrientador(req.orientadorId());                     // RN10
+
+        Submissao s = new Submissao();
+        s.setAluno(usuarios.buscarEntidade(alunoId));
+        s.setEdital(edital);
+        s.setOrientador(orientador);
+        s.setStatus(StatusSubmissao.RASCUNHO);
+        s.setTermoAceite(Boolean.FALSE);
+        s.setTituloProjeto(Validacao.obrigatorio(req.tituloProjeto(), "tituloProjeto", 200));
+        s.setProjetoResumo(Validacao.opcional(req.projetoResumo(), "projetoResumo", 5000));
+        s.setPlanoTrabalho(Validacao.opcional(req.planoTrabalho(), "planoTrabalho", 5000));
+        Submissao salva = submissoes.save(s);
+        return detalhe(salva.getId(), alunoId);
+    }
+
+    /** Painel do aluno (RF11) — header D1. */
+    @Transactional(readOnly = true)
+    public List<SubmissaoPainelResponse> minhas(Long usuarioId) {
+        exigirUsuarioId(usuarioId);
+        return submissoes.findByAlunoIdOrderByCriadoEmDesc(usuarioId).stream()
+                .map(s -> SubmissaoPainelResponse.from(s, documentosRepository.countBySubmissaoId(s.getId())))
+                .toList();
+    }
+
+    /** GET /{id} — dono OU gerenciador (RN06/§9.2); não dono → 404 sem vazar. */
+    @Transactional(readOnly = true)
+    public SubmissaoDetalheResponse detalhe(Long id, Long usuarioId) {
+        Submissao s = buscar(id);
+        assegurarVisibilidade(s, usuarioId);
+        return montarDetalhe(s);
+    }
+
+    /** PUT — atualiza rascunho (RN03: só RASCUNHO), respostas em upsert e termoAceite. */
+    @Transactional
+    public SubmissaoDetalheResponse atualizar(Long id, Long usuarioId, SubmissaoUpdateRequest req) {
+        Submissao s = buscar(id);
+        exigirUsuarioId(usuarioId);
+        if (!s.getAluno().getId().equals(usuarioId)) {                                  // escrita = dono
+            throw RecursoNaoEncontradoException.porId("Submissao", id);
+        }
+        if (s.getStatus() != StatusSubmissao.RASCUNHO) {                                // RN03
+            throw new RegraNegocioException("STATUS_NAO_EDITAVEL",
+                    "A submissão só é editável em RASCUNHO (status atual: " + s.getStatus() + ")");
+        }
+        if (req.tituloProjeto() != null) {
+            s.setTituloProjeto(Validacao.obrigatorio(req.tituloProjeto(), "tituloProjeto", 200));
+        }
+        if (req.projetoResumo() != null) {
+            s.setProjetoResumo(Validacao.opcional(req.projetoResumo(), "projetoResumo", 5000));
+        }
+        if (req.planoTrabalho() != null) {
+            s.setPlanoTrabalho(Validacao.opcional(req.planoTrabalho(), "planoTrabalho", 5000));
+        }
+        if (req.orientadorId() != null) {
+            s.setOrientador(validarOrientador(req.orientadorId()));                     // RN10
+        }
+        if (req.termoAceite() != null) {
+            s.setTermoAceite(req.termoAceite());
+        }
+        if (req.respostas() != null) {
+            upsertRespostas(s, req.respostas());
+        }
+        return montarDetalhe(s);
+    }
+
+    // ============================== helpers ==============================
+
+    /** RN10 — orientador informado deve ser usuário existente com funcao=PROFESSOR. */
+    private Usuario validarOrientador(Long orientadorId) {
+        if (orientadorId == null) {
+            return null;
+        }
+        Usuario orientador = usuarios.buscarEntidade(orientadorId);
+        if (orientador.getFuncao() != FuncaoUsuario.PROFESSOR) {
+            throw new RegraNegocioException(HttpStatus.BAD_REQUEST, "ORIENTADOR_INVALIDO",
+                    "O orientador precisa ser um usuário com função PROFESSOR");
+        }
+        return orientador;
+    }
+
+    /** Upsert de respostas por perguntaId (uk_resposta_unica); pergunta deve pertencer ao edital. */
+    private void upsertRespostas(Submissao s, List<br.edu.upe.sgba.dto.RespostaUpsertRequest> respostas) {
+        for (var r : respostas) {
+            if (r.perguntaId() == null) {
+                throw Validacao.argumentoInvalido("Cada resposta precisa de 'perguntaId'");
+            }
+            PerguntaEdital pergunta = perguntasRepository.findById(r.perguntaId())
+                    .orElseThrow(() -> RecursoNaoEncontradoException.porId("Pergunta", r.perguntaId()));
+            if (!s.getEdital().getId().equals(pergunta.getEdital().getId())) {
+                throw RecursoNaoEncontradoException.porId("Pergunta para o edital da submissão",
+                        r.perguntaId());
+            }
+            RespostaSubmissao resposta = respostasRepository
+                    .findBySubmissaoIdAndPerguntaId(s.getId(), pergunta.getId())
+                    .orElseGet(() -> {
+                        RespostaSubmissao nova = new RespostaSubmissao();
+                        nova.setSubmissao(s);
+                        nova.setPergunta(pergunta);
+                        return nova;
+                    });
+            resposta.setRespostaTexto(Validacao.obrigatorio(r.respostaTexto(), "respostaTexto", 5000));
+            s.getRespostas().add(resposta);
+            respostasRepository.save(resposta);
+        }
+    }
+
+    private SubmissaoDetalheResponse montarDetalhe(Submissao s) {
+        return SubmissaoDetalheResponse.from(s,
+                respostasRepository.findBySubmissaoId(s.getId()),
+                documentosRepository.countBySubmissaoId(s.getId()));
+    }
+
+    Submissao buscar(Long id) {
+        return submissoes.findById(id)
+                .orElseThrow(() -> RecursoNaoEncontradoException.porId("Submissao", id));
+    }
+
+    /** Header ausente/nulo → 400 (D1: o Service valida o usuário corrente). */
+    void exigirUsuarioId(Long usuarioId) {
+        if (usuarioId == null) {
+            throw new RegraNegocioException(HttpStatus.BAD_REQUEST, "ARGUMENTO_INVALIDO",
+                    "Usuário não informado (header X-Usuario-Id)");
+        }
+    }
+
+    /**
+     * RN06 (consulta): dono OU função GERENCIADOR vê o recurso; qualquer outro
+     * caso → 404 — não vazar existência (decisão registrada no plano/PR).
+     */
+    void assegurarVisibilidade(Submissao s, Long usuarioId) {
+        exigirUsuarioId(usuarioId);
+        if (s.getAluno().getId().equals(usuarioId)) {
+            return;
+        }
+        Usuario usuario = usuarios.buscarEntidade(usuarioId);
+        if (usuario.getFuncao() == FuncaoUsuario.GERENCIADOR) {
+            return;
+        }
+        throw RecursoNaoEncontradoException.porId("Submissao", s.getId());
+    }
+}
