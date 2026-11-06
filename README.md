@@ -243,6 +243,21 @@ curl -i http://localhost:8080/api/inexistente
 ./mvnw test
 ```
 
+### 6. Suíte de testes no Insomnia (workspace pronto para importar)
+
+Importe `docs/insomnia/sgba-checkpoint3.insomnia.json` (Insomnia → **Import** → **File**
+ou arraste o arquivo para a janela). O workspace traz:
+
+- Pasta **0 · Fundação** (rota inexistente → 404 D2), **1 · Usuários** (RN01/duplicados/201+Location),
+  **2 · Alunos** (MapsId, duplicatas, `PERMISSAO_INSUFICIENTE`) e **3 · Programas**
+  (janela por datas, filtros paginados, `encerrar` 200→409);
+- Environment **dev (compose + seed)** com `baseUrl=http://localhost:8080` e os IDs do seed
+  (usuários 1–3, programa 1, editais 1–4 — ajuste os valores se o banco já tiver dados;
+  os IDs sempre aparecem no log do seed);
+- Em cada request, a **descrição indica o status esperado** e o contrato D2 (`{status, erro, mensagem}`).
+
+Requisito: app no ar com o profile `dev` (passo 2) e o `docker compose up -d`.
+
 ### Dados do seed (contrato público para as Issues 2–6)
 
 | Dado | Valor |
