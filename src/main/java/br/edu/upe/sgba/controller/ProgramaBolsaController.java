@@ -3,8 +3,8 @@ package br.edu.upe.sgba.controller;
 import br.edu.upe.sgba.dto.ProgramaUpsertRequest;
 import br.edu.upe.sgba.dto.ProgramaResponse;
 import br.edu.upe.sgba.dto.ProgramaCatalogoResponse;
-import br.edu.upe.sgba.enums.CategoriaPrograma;
-import br.edu.upe.sgba.enums.StatusPrograma;
+import br.edu.upe.sgba.entity.enums.CategoriaPrograma;
+import br.edu.upe.sgba.entity.enums.StatusPrograma;
 import br.edu.upe.sgba.service.ProgramaBolsaService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -53,7 +53,7 @@ public class ProgramaBolsaController {
     @PostMapping
     public ResponseEntity<ProgramaResponse> cadastrar(@RequestBody ProgramaUpsertRequest request) {
         ProgramaResponse response = service.cadastrar(request);
-        URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(response.getId()).toUri();
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(response.id()).toUri();
 
         return ResponseEntity.created(location).body(response);
     }
