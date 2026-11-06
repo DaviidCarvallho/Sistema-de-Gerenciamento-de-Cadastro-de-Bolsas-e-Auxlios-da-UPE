@@ -13,7 +13,9 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.edu.upe.sgba.dto.HistoricoResponse;
 import br.edu.upe.sgba.dto.SubmissaoDetalheResponse;
+import br.edu.upe.sgba.dto.SubmissaoEnviadaResponse;
 import br.edu.upe.sgba.dto.SubmissaoPainelResponse;
 import br.edu.upe.sgba.dto.SubmissaoRascunhoRequest;
 import br.edu.upe.sgba.dto.SubmissaoUpdateRequest;
@@ -58,5 +60,21 @@ public class SubmissaoController {
             @RequestHeader(value = "X-Usuario-Id", required = false) Long usuarioId,
             @RequestBody SubmissaoUpdateRequest req) {
         return service.atualizar(id, usuarioId, req);
+    }
+
+    /** Envia o rascunho (RN02/RN05/RN09/RN12) — 200 (o recurso já existe). */
+    @PostMapping("/{id}/enviar")
+    public SubmissaoEnviadaResponse enviar(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-Usuario-Id", required = false) Long usuarioId) {
+        return service.enviar(id, usuarioId);
+    }
+
+    /** Timeline RF12 (append-only), mais recente primeiro. */
+    @GetMapping("/{id}/historico")
+    public List<HistoricoResponse> historico(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-Usuario-Id", required = false) Long usuarioId) {
+        return service.historico(id, usuarioId);
     }
 }

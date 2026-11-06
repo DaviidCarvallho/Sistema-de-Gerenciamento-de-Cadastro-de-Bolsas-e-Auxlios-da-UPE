@@ -1,7 +1,11 @@
 package br.edu.upe.sgba.service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -9,11 +13,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import br.edu.upe.sgba.dto.HistoricoResponse;
 import br.edu.upe.sgba.dto.SubmissaoDetalheResponse;
+import br.edu.upe.sgba.dto.SubmissaoEnviadaResponse;
 import br.edu.upe.sgba.dto.SubmissaoPainelResponse;
 import br.edu.upe.sgba.dto.SubmissaoRascunhoRequest;
 import br.edu.upe.sgba.dto.SubmissaoUpdateRequest;
+import br.edu.upe.sgba.entity.Aluno;
 import br.edu.upe.sgba.entity.Edital;
+import br.edu.upe.sgba.entity.HistoricoStatus;
 import br.edu.upe.sgba.entity.PerguntaEdital;
 import br.edu.upe.sgba.entity.RespostaSubmissao;
 import br.edu.upe.sgba.entity.Submissao;
@@ -25,6 +33,7 @@ import br.edu.upe.sgba.exception.RegraNegocioException;
 import br.edu.upe.sgba.repository.AlunoRepository;
 import br.edu.upe.sgba.repository.DocumentoAnexoRepository;
 import br.edu.upe.sgba.repository.EditalRepository;
+import br.edu.upe.sgba.repository.ExigenciaEditalRepository;
 import br.edu.upe.sgba.repository.HistoricoStatusRepository;
 import br.edu.upe.sgba.repository.PerguntaEditalRepository;
 import br.edu.upe.sgba.repository.RespostaSubmissaoRepository;
@@ -51,6 +60,7 @@ public class SubmissaoService {
     private final DocumentoAnexoRepository documentosRepository;
     private final EditalRepository editaisRepository;
     private final PerguntaEditalRepository perguntasRepository;
+    private final ExigenciaEditalRepository exigenciasRepository;
     private final AlunoRepository alunosRepository;
     private final UsuarioService usuarios;
     private final NotificacaoPort notificacoes;
@@ -133,6 +143,128 @@ public class SubmissaoService {
             upsertRespostas(s, req.respostas());
         }
         return montarDetalhe(s);
+    }
+
+    // ============================== envio (RN02/RN05/RN09/RN12) e RN07/RF12 ==============================
+
+    /** POST /{id}/enviar — ação do aluno dono; valida RN05 + RN12 e executa RN02 + RN09 + RN07. */
+    @Transactional
+    public SubmissaoEnviadaResponse enviar(Long id, Long usuarioId) {
+        Submissao s = buscar(id);
+        exigirUsuarioId(usuarioId);
+        if (!s.getAluno().getId().equals(usuarioId)) {                          // envio = dono (RF07)
+            throw RecursoNaoEncontradoException.porId("Submissao", id);
+        }
+        if (s.getStatus() != StatusSubmissao.RASCUNHO) {                        // máquina RF16: enviar só do RASCUNHO
+            throw new RegraNegocioException("TRANSICAO_INVALIDA",
+                    "A submissão não está em RASCUNHO (status atual: " + s.getStatus() + ")");
+        }
+        Edital edital = s.getEdital();
+        LocalDateTime agora = LocalDateTime.now();
+        if (agora.isBefore(edital.getDataInicioSubmissoes())                    // RN05 — janela de envio
+                || agora.isAfter(edital.getDataFimSubmissoes())) {
+            throw new RegraNegocioException("FORA_DO_PRAZO",
+                    "A janela de submissões do edital " + edital.getNumeroEdital() + "/" + edital.getAno()
+                            + " encerrou em " + edital.getDataFimSubmissoes());
+        }
+        List<String> pendencias = coletarPendenciasDeEnvio(s);                  // RN12
+        if (!pendencias.isEmpty()) {
+            throw new RegraNegocioException("ENVIO_INCOMPLETO",
+                    "Envio com " + pendencias.size() + " pendência(s): " + String.join(" • ", pendencias));
+        }
+        Aluno perfil = alunosRepository.findById(s.getAluno().getId())          // RN09 — snapshot do mérito
+                .orElseThrow(() -> new RegraNegocioException(HttpStatus.BAD_REQUEST, "ALUNO_SEM_PERFIL",
+                        "Complete o perfil de aluno antes de enviar"));
+        s.setCursoMomento(perfil.getCurso());
+        s.setPeriodoMomento(perfil.getPeriodoAtual());
+        s.setCraMomento(perfil.getCraAtual());
+        s.setUnidadeMomento(perfil.getUnidadeAcademica());
+
+        s.setProtocolo(gerarProtocolo());          // RN02 (D6)
+        s.setDataEnvio(agora);
+        s.setStatus(StatusSubmissao.RECEBIDA);
+        Submissao salva = submissoes.save(s);
+
+        registrarHistorico(salva, StatusSubmissao.RASCUNHO, StatusSubmissao.RECEBIDA,   // RN07
+                "Envio realizado pelo aluno", s.getAluno());
+        notificacoes.notificarTransicao(s.getAluno().getId(), s.getId(),        // hook (Issue 6 conecta)
+                "Submissão " + s.getProtocolo() + ": RASCUNHO → RECEBIDA");
+
+        return SubmissaoEnviadaResponse.from(salva);
+    }
+
+    /** GET /{id}/historico — timeline append-only (RF12); dono OU gerenciador (RN06). */
+    @Transactional(readOnly = true)
+    public List<HistoricoResponse> historico(Long id, Long usuarioId) {
+        Submissao s = buscar(id);
+        assegurarVisibilidade(s, usuarioId);
+        return historicosRepository.findBySubmissaoIdOrderByDataHoraDesc(id).stream()
+                .map(HistoricoResponse::from)
+                .toList();
+    }
+
+    // ------------------------------ helpers de envio ------------------------------
+
+    /**
+     * RN12 — pendências do envio: termoAceite, perguntas obrigatórias respondidas
+     * e exigências obrigatórias com documento anexado.
+     */
+    private List<String> coletarPendenciasDeEnvio(Submissao s) {
+        List<String> pendencias = new ArrayList<>();
+        if (!Boolean.TRUE.equals(s.getTermoAceite())) {
+            pendencias.add("Termo de aceite não aceite");
+        }
+        Map<Long, String> respostaPorPergunta = respostasRepository.findBySubmissaoId(s.getId()).stream()
+                .collect(Collectors.toMap(r -> r.getPergunta().getId(),
+                        RespostaSubmissao::getRespostaTexto, (a, b) -> a));
+        for (PerguntaEdital pergunta : perguntasRepository
+                .findByEditalIdOrderByOrdemExibicaoAsc(s.getEdital().getId())) {
+            if (!Boolean.TRUE.equals(pergunta.getObrigatoria())) {
+                continue;
+            }
+            String texto = respostaPorPergunta.get(pergunta.getId());
+            if (texto == null || texto.isBlank()) {
+                pendencias.add("Pergunta obrigatória não respondida: '" + pergunta.getEnunciado() + "'");
+            }
+        }
+        for (br.edu.upe.sgba.entity.ExigenciaEdital exigencia : exigenciasRepository
+                .findByEditalIdOrderByIdAsc(s.getEdital().getId())) {
+            if (!Boolean.TRUE.equals(exigencia.getObrigatorio())) {
+                continue;
+            }
+            if (!documentosRepository.existsBySubmissaoIdAndTipoDocumento(
+                    s.getId(), exigencia.getTipoDocumento())) {
+                pendencias.add("Documento obrigatório não anexado: " + exigencia.getTipoDocumento());
+            }
+        }
+        return pendencias;
+    }
+
+    /** RN02 (D6) — protocolo #AAAA-XXXX anual: contador do ano + exists-check, máx. 5 tentativas. */
+    private String gerarProtocolo() {
+        String prefixo = "#" + LocalDateTime.now().getYear() + "-";
+        long base = submissoes.countByProtocoloStartingWith(prefixo);
+        for (int tentativa = 1; tentativa <= 5; tentativa++) {
+            String candidato = prefixo + String.format("%04d", base + tentativa);
+            if (!submissoes.existsByProtocolo(candidato)) {
+                return candidato;
+            }
+        }
+        throw new RegraNegocioException("PROTOCOLO_INDISPONIVEL",
+                "Não foi possível gerar o protocolo após 5 tentativas");
+    }
+
+    /** RN07 — evento de mudança de status na MESMA transação do chamador (append-only). */
+    private void registrarHistorico(Submissao s, StatusSubmissao statusAnterior,
+            StatusSubmissao statusNovo, String observacao, Usuario usuario) {
+        br.edu.upe.sgba.entity.HistoricoStatus evento = new br.edu.upe.sgba.entity.HistoricoStatus();
+        evento.setSubmissao(s);
+        evento.setStatusAnterior(statusAnterior);
+        evento.setStatusNovo(statusNovo);
+        evento.setObservacao(observacao);
+        evento.setDataHora(LocalDateTime.now());
+        evento.setUsuario(usuario);
+        historicosRepository.save(evento);
     }
 
     // ============================== helpers ==============================

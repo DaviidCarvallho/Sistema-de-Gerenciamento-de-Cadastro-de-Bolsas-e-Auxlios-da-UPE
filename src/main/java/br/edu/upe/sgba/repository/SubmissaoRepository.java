@@ -26,6 +26,9 @@ public interface SubmissaoRepository extends JpaRepository<Submissao, Long> {
     /** Pré-checagem do gerador de protocolo (D6 — loop de 5 tentativas). */
     boolean existsByProtocolo(String protocolo);
 
+    /** Contador anual para o gerador de protocolo (D6): "#<ano>-". */
+    long countByProtocoloStartingWith(String prefixo);
+
     Page<Submissao> findByEditalId(Long editalId, Pageable pageable);
 
     /** RF14 — painel do gerenciador com filtros combináveis por status/edital/programa (D4). */

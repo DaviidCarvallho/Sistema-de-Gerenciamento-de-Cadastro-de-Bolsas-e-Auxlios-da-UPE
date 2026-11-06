@@ -284,4 +284,152 @@ class SubmissaoApiTest {
                 .exchange()
                 .expectStatus().isEqualTo(200);
     }
+
+    // ============================== T5 — envio (RN02/RN05/RN09/RN12/RN07) ==============================
+
+    @Test
+    void enviar_semRespostaObrigatoria_retorna409ComPendencias() {
+        Long alunoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        criarPergunta(editalId, true);
+        Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
+
+        String corpo = postEnviar(alunoId, submissaoId, 409);
+        assertTrue(corpo.contains("ENVIO_INCOMPLETO"), "esperava ENVIO_INCOMPLETO, veio: " + corpo);
+        assertTrue(corpo.contains("Pergunta obrigatória não respondida"), "esperava pendência do enunciado: " + corpo);
+    }
+
+    @Test
+    void enviar_semTermoAceite_retorna409() {
+        Long alunoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long perguntaId = criarPergunta(editalId, true);
+        Long submissaoId = submeter(alunoId, editalId);
+
+        putRespostas(alunoId, submissaoId, perguntaId, "Resposta completa", false);
+
+        String corpo = postEnviar(alunoId, submissaoId, 409);
+        assertTrue(corpo.contains("ENVIO_INCOMPLETO"), "esperava ENVIO_INCOMPLETO, veio: " + corpo);
+        assertTrue(corpo.contains("Termo de aceite não aceite"), "esperava pendência do termo: " + corpo);
+    }
+
+    @Test
+    void enviar_foraDoPrazo_retorna409() {
+        Long alunoId = criarAluno();
+        Long editalEncerradoId = criarEdital(criarPrograma(),
+                LocalDateTime.now().minusDays(10), LocalDateTime.now().minusDays(1));
+        Long submissaoId = submeter(alunoId, editalEncerradoId);
+
+        String corpo = postEnviar(alunoId, submissaoId, 409);
+        assertTrue(corpo.contains("FORA_DO_PRAZO"), "esperava FORA_DO_PRAZO, veio: " + corpo);
+    }
+
+    @Test
+    void enviar_valido_geraProtocoloSnapshotEHistorico() {
+        Long alunoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long perguntaId = criarPergunta(editalId, true);
+        Long submissaoId = submeter(alunoId, editalId);
+        putRespostas(alunoId, submissaoId, perguntaId, "Resposta completa", true);
+
+        String corpo = postEnviar(alunoId, submissaoId, 200);
+        Matcher protocolo = Pattern.compile("#\\d{4}-\\d{4}").matcher(corpo);
+        assertTrue(protocolo.find(), "protocolo no formato #AAAA-XXXX: " + corpo);
+        assertTrue(corpo.contains("\"status\":\"RECEBIDA\""), "status RECEBIDA: " + corpo);
+
+        // RN09 — snapshot do mérito no envio (campos *_Momento)
+        rest.get().uri("/api/submissoes/" + submissaoId)
+                .header("X-Usuario-Id", alunoId.toString())
+                .exchange()
+                .expectStatus().isEqualTo(200)
+                .expectBody()
+                .jsonPath("$.cursoMomento").isEqualTo("Sistemas de Informacao")
+                .jsonPath("$.periodoMomento").isEqualTo(6)
+                .jsonPath("$.craMomento").isEqualTo(8.5)
+                .jsonPath("$.unidadeMomento").isEqualTo("UPE Campus");
+
+        // RN07/RF12 — 1 evento: RASCUNHO → RECEBIDA
+        rest.get().uri("/api/submissoes/" + submissaoId + "/historico")
+                .header("X-Usuario-Id", alunoId.toString())
+                .exchange()
+                .expectStatus().isEqualTo(200)
+                .expectBody()
+                .jsonPath("$.length()").isEqualTo(1)
+                .jsonPath("$[0].statusAnterior").isEqualTo("RASCUNHO")
+                .jsonPath("$[0].statusNovo").isEqualTo("RECEBIDA");
+    }
+
+    @Test
+    void enviar_protocoloComContadorUnicoParaOutraSubmissao() {
+        Long alunoId = criarAluno();
+        Long programaId = criarPrograma();
+        Long edital1 = criarEditalAberto(programaId);
+        Long edital2 = criarEditalAberto(programaId);
+        Long sub1 = putTermoAceite(alunoId, submeter(alunoId, edital1));
+        Long sub2 = putTermoAceite(alunoId, submeter(alunoId, edital2));
+
+        String corpo1 = postEnviar(alunoId, sub1, 200);
+        String corpo2 = postEnviar(alunoId, sub2, 200);
+        String p1 = extrairProtocolo(corpo1);
+        String p2 = extrairProtocolo(corpo2);
+        assertTrue(!p1.equals(p2), "protocolos distintos no mesmo ano: " + p1 + " vs " + p2);
+    }
+
+    @Test
+    void enviar_porNaoDono_retorna404() {
+        Long alunoId = criarAluno();
+        Long intrusoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = submeter(alunoId, editalId);
+
+        rest.post().uri("/api/submissoes/" + submissaoId + "/enviar")
+                .header("X-Usuario-Id", intrusoId.toString())
+                .exchange()
+                .expectStatus().isEqualTo(404);
+    }
+
+    @Test
+    void enviar_semPerfilDeAluno_retorna400() {
+        // usuário ALUNO SEM perfil (sem POST /api/alunos) — RN09 não tem mérito a copiar
+        String usuarioCorpo = rest.post().uri("/api/usuarios")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"nome\":\"Aluno Sem Perfil\",\"email\":\"al.sem." + sufixoUnico()
+                        + "@upe.br\",\"senha\":\"x\",\"funcao\":\"ALUNO\"}")
+                .exchange()
+                .expectStatus().isEqualTo(201)
+                .returnResult(String.class).getResponseBody();
+        Long alunoId = extrairId(usuarioCorpo);
+
+        Long editalId = criarEditalAberto(criarPrograma()); // sem perguntas/exigências → RN12 ok
+        Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
+
+        String corpo = postEnviar(alunoId, submissaoId, 400);
+        assertTrue(corpo.contains("ALUNO_SEM_PERFIL"), "esperava ALUNO_SEM_PERFIL, veio: " + corpo);
+    }
+
+    // --------- helpers de envio ---------
+
+    private Long putTermoAceite(Long alunoId, Long submissaoId) {
+        rest.put().uri("/api/submissoes/" + submissaoId)
+                .header("X-Usuario-Id", alunoId.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"termoAceite\":true}")
+                .exchange()
+                .expectStatus().isEqualTo(200);
+        return submissaoId;
+    }
+
+    private String postEnviar(Long usuarioId, Long submissaoId, int statusEsperado) {
+        return rest.post().uri("/api/submissoes/" + submissaoId + "/enviar")
+                .header("X-Usuario-Id", usuarioId.toString())
+                .exchange()
+                .returnResult(String.class)
+                .getResponseBody();
+    }
+
+    private String extrairProtocolo(String corpo) {
+        Matcher m = Pattern.compile("#\\d{4}-\\d{4}").matcher(corpo);
+        assertTrue(m.find(), "protocolo no corpo: " + corpo);
+        return m.group();
+    }
 }
