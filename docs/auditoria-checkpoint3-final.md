@@ -40,7 +40,14 @@
 
 ## Checklist de santidade executado nesta branch
 
-- [x] `./mvnw test` **verde** (profiles test/H2): 8 classes de teste (contexto, handler, rota inexistente, usuário/aluno, edital, **notificações**, **submissões 19 testes**, **documentos 10 testes**).
+- [x] `./mvnw test` **verde** (profiles test/H2): 8 classes de teste (contexto, handler, rota inexistente, usuário/aluno, edital, **notificações**, **submissões 20 testes**, **documentos 10 testes**).
 - [x] Smoke ao vivo com PG (`docker compose up -d`) + app `dev`: banco limpo → seed → fluxo completo por HTTP (rascunho → respostas → enviar → PATCH EM_ANALISE/PENDENTE/APROVADA → histórico com 4 eventos → upload multipart → download com bytes iguais → inbox do aluno com as notificações das transições) — sem 500.
-- [x] Coleções JSON válidas (`jq empty`): Insomnia (85 requests) e Postman (8 pastas).
+- [x] `GET /api/gerenciador/submissoes` **sem filtros** no PostgreSQL real (todos os parâmetros nulos do `@Query`) → 200 com 2 registros (recomendação do review final).
+- [x] Coleções JSON válidas (`jq empty`): Insomnia (86 requests) e Postman (8 pastas).
 - [x] Um único PR fecha as duas issues restantes (#5 e #6) — decisão do time nesta iteração final (D9 ajustado no PR).
+
+## Limitações documentadas (cp4)
+
+> Em `POST /api/submissoes/{id}/documentos` com **`tipoDocumento` ausente** no multipart, o Spring responde 400 com body fora do formato D2 (`MissingServletRequestPartException` não mapeado no handler base — Issue 1 não é dona do arquivo para este cp3). Que fica para Bean Validation/handler completo do cp4, junto com CORS/auth.
+
+> Quatro consultas de repository previstas no plano **sem chamador hoje** (usadas por cp4/consumidor futuro): `SubmissaoRepository.findByProtocolo`, `findByEditalId`, `DocumentoAnexoRepository.findByIdAndSubmissaoId`, `NotificacaoRepository.countByDestinatarioIdAndLidaEmIsNull`.

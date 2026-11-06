@@ -49,7 +49,7 @@ Todos no header `X-Usuario-Id` (D1 — sem auth no cp3).
 | B  | rascunho no Edital C (janela 2025 encerrada) → `enviar` | **409** `FORA_DO_PRAZO` (**RN05**) |
 | C  | rascunho no Edital B (exigências obrigatórias) → `enviar` | **409** `ENVIO_INCOMPLETO` **listando os 2 documentos** — segue bloqueado até a pasta Documentos |
 | D1–D7 | `PATCH /status` pelo **gerenciador** (id 3): `EM_ANALISE` → `PENDENTE_DOCUMENTOS` (motivo) → *(após Documentos)* `EM_ANALISE` → `APROVADA` | Transições da **tabela RF16**; sem motivo → **400** `MOTIVO_OBRIGATORIO` (**RN04**); com header de aluno → **400** `PERMISSAO_INSUFICIENTE` (§9.2); `RASCUNHO→APROVADA` → **409** `TRANSICAO_INVALIDA` |
-| E3 | `GET /{submissaoIdA}/historico` | **200** timeline com os **4 eventos** (statusAnterior/Novo, observação, dataHora, usuário) — **RF12/RN07** |
+| E3 | `GET /{submissaoIdA}/historico` | **200** timeline com os **5 eventos** da sequência D1–D7 (envio + 4 PATCHs: statusAnterior/Novo, observação, dataHora, usuário) — **RF12/RN07** (a variante de 4 eventos corresponde a parar em APROVADA logo após a pendência) |
 | E5 | `GET /api/gerenciador/submissoes?status=` | **200** painel do gerenciador (**RF14**) |
 | F1–F2 | `PUT /api/alunos/{id}` muda `craAtual` → `GET /{submissaoIdA}` | `craMomento` **continua 8.50** — snapshot imutável do mérito (**RN09**) |
 

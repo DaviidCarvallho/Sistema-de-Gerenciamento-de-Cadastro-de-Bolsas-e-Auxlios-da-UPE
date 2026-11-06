@@ -431,11 +431,14 @@ class SubmissaoApiTest {
     }
 
     private String postEnviar(Long usuarioId, Long submissaoId, int statusEsperado) {
-        return rest.post().uri("/api/submissoes/" + submissaoId + "/enviar")
-                .header("X-Usuario-Id", usuarioId.toString())
+        var resposta = rest.post().uri("/api/submissoes/" + submissaoId + "/enviar")
+                .header("X-Usuario-Id", String.valueOf(usuarioId))
                 .exchange()
-                .returnResult(String.class)
-                .getResponseBody();
+                .returnResult(String.class);
+        assertTrue(resposta.getStatus().value() == statusEsperado,
+                "esperava " + statusEsperado + " mas veio " + resposta.getStatus()
+                        + " | corpo: " + resposta.getResponseBody());
+        return resposta.getResponseBody();
     }
 
     private String extrairProtocolo(String corpo) {
@@ -446,26 +449,18 @@ class SubmissaoApiTest {
 
     // ============================== T6 — RF16 (PATCH status) + RN04 + §9.2 + RF14 ==============================
 
-    /** Helper do fluxo do gerenciador: PATCH /api/submissoes/{id}/status. */
-    private String patchStatus(Long usuarioId, Long submissaoId, String body) {
-        return rest.patch().uri("/api/submissoes/" + submissaoId + "/status")
+    /** Helper do fluxo do gerenciador: PATCH /api/submissoes/{id}/status — asserção de STATUS + corpo. */
+    private String patchStatus(Long usuarioId, Long submissaoId, String body, int statusEsperado) {
+        var resposta = rest.patch().uri("/api/submissoes/" + submissaoId + "/status")
                 .header("X-Usuario-Id", String.valueOf(usuarioId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body)
                 .exchange()
-                .returnResult(String.class)
-                .getResponseBody();
-    }
-
-    private String patchStatusHeader(Long usuarioId, Long submissaoId, String body, int statusEsperado) {
-        return rest.patch().uri("/api/submissoes/" + submissaoId + "/status")
-                .header("X-Usuario-Id", String.valueOf(usuarioId))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .exchange()
-                .expectStatus().isEqualTo(statusEsperado)
-                .returnResult(String.class)
-                .getResponseBody();
+                .returnResult(String.class);
+        assertTrue(resposta.getStatus().value() == statusEsperado,
+                "esperava " + statusEsperado + " mas veio " + resposta.getStatus()
+                        + " | corpo: " + resposta.getResponseBody());
+        return resposta.getResponseBody();
     }
 
     @Test
@@ -476,11 +471,10 @@ class SubmissaoApiTest {
         Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
         postEnviar(alunoId, submissaoId, 200);
 
-        patchStatusHeader(gerenciadorId, submissaoId,
-                "{\"novoStatus\":\"EM_ANALISE\"}", 200);
+        patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"EM_ANALISE\"}", 200);
         String motivo = "Falta comprovante de matricula";
-        patchStatusHeader(gerenciadorId, submissaoId, "{\"novoStatus\":\"PENDENTE_DOCUMENTOS\",\"motivo\":\"" + motivo + "\"}", 200);
-        patchStatusHeader(gerenciadorId, submissaoId, "{\"novoStatus\":\"APROVADA\"}", 200);
+        patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"PENDENTE_DOCUMENTOS\",\"motivo\":\"" + motivo + "\"}", 200);
+        patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"APROVADA\"}", 200);
 
         rest.get().uri("/api/submissoes/" + submissaoId + "/historico")
                 .header("X-Usuario-Id", alunoId.toString())
@@ -516,7 +510,7 @@ class SubmissaoApiTest {
         Long editalId = criarEditalAberto(criarPrograma());
         Long submissaoId = submeter(alunoId, editalId);
 
-        String corpo = patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"APROVADA\"}");
+        String corpo = patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"APROVADA\"}", 409);
         assertTrue(corpo.contains("TRANSICAO_INVALIDA"), "esperava TRANSICAO_INVALIDA: " + corpo);
     }
 
@@ -527,9 +521,9 @@ class SubmissaoApiTest {
         Long editalId = criarEditalAberto(criarPrograma());
         Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
         postEnviar(alunoId, submissaoId, 200);
-        patchStatusHeader(gerenciadorId, submissaoId, "{\"novoStatus\":\"EM_ANALISE\"}", 200);
+        patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"EM_ANALISE\"}", 200);
 
-        String corpo = patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"PENDENTE_DOCUMENTOS\"}");
+        String corpo = patchStatus(gerenciadorId, submissaoId, "{\"novoStatus\":\"PENDENTE_DOCUMENTOS\"}", 400);
         assertTrue(corpo.contains("MOTIVO_OBRIGATORIO"), "esperava MOTIVO_OBRIGATORIO: " + corpo);
     }
 
@@ -539,7 +533,7 @@ class SubmissaoApiTest {
         Long editalId = criarEditalAberto(criarPrograma());
         Long submissaoId = submeter(alunoId, editalId);
 
-        String corpo = patchStatus(alunoId, submissaoId, "{\"novoStatus\":\"RECEBIDA\"}");
+        String corpo = patchStatus(alunoId, submissaoId, "{\"novoStatus\":\"APROVADA\"}", 400);
         assertTrue(corpo.contains("PERMISSAO_INSUFICIENTE"), "esperava PERMISSAO_INSUFICIENTE: " + corpo);
     }
 
@@ -556,6 +550,37 @@ class SubmissaoApiTest {
                 .returnResult(String.class)
                 .getResponseBody();
         assertTrue(corpo.contains("ARGUMENTO_INVALIDO"), "esperava ARGUMENTO_INVALIDO: " + corpo);
+    }
+
+    /** RN06 (Review Focus #2) — consulta por não-dono responde 404 SEM vazar existência,
+     *  em DETALHE, HISTÓRICO e LISTAGEM DE DOCUMENTOS (dono OU gerenciador apenas). */
+    @Test
+    void consulta_porNaoDono_detalheHistoricoDocumentos_retorna404() {
+        Long alunoId = criarAluno();
+        Long intrusoId = criarAluno();
+        Long editalId = criarEditalAberto(criarPrograma());
+        Long submissaoId = putTermoAceite(alunoId, submeter(alunoId, editalId));
+
+        rest.get().uri("/api/submissoes/" + submissaoId)
+                .header("X-Usuario-Id", String.valueOf(intrusoId))
+                .exchange()
+                .expectStatus().isEqualTo(404)
+                .expectBody()
+                .jsonPath("$.erro").isEqualTo("RECURSO_NAO_ENCONTRADO");
+
+        rest.get().uri("/api/submissoes/" + submissaoId + "/historico")
+                .header("X-Usuario-Id", String.valueOf(intrusoId))
+                .exchange()
+                .expectStatus().isEqualTo(404)
+                .expectBody()
+                .jsonPath("$.erro").isEqualTo("RECURSO_NAO_ENCONTRADO");
+
+        rest.get().uri("/api/submissoes/" + submissaoId + "/documentos")
+                .header("X-Usuario-Id", String.valueOf(intrusoId))
+                .exchange()
+                .expectStatus().isEqualTo(404)
+                .expectBody()
+                .jsonPath("$.erro").isEqualTo("RECURSO_NAO_ENCONTRADO");
     }
 
     @Test
