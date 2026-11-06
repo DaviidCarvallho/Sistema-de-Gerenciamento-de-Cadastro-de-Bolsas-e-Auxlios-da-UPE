@@ -243,18 +243,46 @@ curl -i http://localhost:8080/api/inexistente
 ./mvnw test
 ```
 
-### 6. Suíte de testes no Insomnia (workspace pronto para importar)
+### 6. Suíte de testes no Insomnia (workspace completo do Checkpoint 3)
 
 Importe `docs/insomnia/sgba-checkpoint3.insomnia.json` (Insomnia → **Import** → **File**
-ou arraste o arquivo para a janela). O workspace traz:
+ou arraste o arquivo para a janela). O workspace cobre **todas as Issues 1–6** com 8 pastas
+e 85 requests; a coleção Postman equivalente está em `docs/postman/sgba-checkpoint3.postman_collection.json`:
 
-- Pasta **0 · Fundação** (rota inexistente → 404 D2), **1 · Usuários** (RN01/duplicados/201+Location),
-  **2 · Alunos** (MapsId, duplicatas, `PERMISSAO_INSUFICIENTE`) e **3 · Programas**
-  (janela por datas, filtros paginados, `encerrar` 200→409);
+- **0 · Fundação** (rota inexistente → 404 D2) · **1 · Usuários** (RN01/duplicados/201+Location) ·
+  **2 · Alunos** (MapsId, duplicatas, `PERMISSAO_INSUFICIENTE`) · **3 · Programas**
+  (janela por datas, filtros paginados, `encerrar` 200→409) · **4 · Editais**
+  (formulário dinâmico: perguntas/exigências com uniques, upload/download do PDF);
+- **5 · Submissões — ciclo de vida** (módulo central): rascunho (RN08/RN10) → respostas+termo (RN03/upsert)
+  → **enviar** (RN05 janela, RN12 completude, RN02 protocolo `#AAAA-XXXX`, RN09 snapshot) → transições
+  RF16 pelo gerenciador (RN04 motivo, §9.2 `PERMISSAO_INSUFICIENTE`) → histórico RF12, painéis RF11/RF14;
+- **6 · Documentos** (RF09 upload/download, RF15 validação do gerenciador, RN03/RN11) e
+  **7 · Notificações** (RF17 inbox por transição de status, marcar-lida idempotente);
 - Environment **dev (compose + seed)** com `baseUrl=http://localhost:8080` e os IDs do seed
   (usuários 1–3, programa 1, editais 1–4 — ajuste os valores se o banco já tiver dados;
-  os IDs sempre aparecem no log do seed);
+  os IDs sempre aparecem no log do seed); ids de submissão/documento/notificação criados na
+  demo são anotados nas variáveis durante a execução;
 - Em cada request, a **descrição indica o status esperado** e o contrato D2 (`{status, erro, mensagem}`).
+
+Roteiro guiado de apresentação: **`docs/demo-checkpoint3.md`** (< 10 min).
+
+### 6.1 Contratos novos (Issues 5 e 6)
+
+| Rota | Verbo | Status |
+|---|---|---|
+| `/api/submissoes` | POST | 201+Location / 409 `SUBMISSAO_DUPLICADA` / 400 `ORIENTADOR_INVALIDO` |
+| `/api/submissoes/minhas` | GET | 200 (RF11, header D1) |
+| `/api/submissoes/{id}` | GET / PUT | 200 / 404 (RN06: dono ou gerenciador) / 409 `STATUS_NAO_EDITAVEL` (RN03) |
+| `/api/submissoes/{id}/enviar` | POST | 200 RECEBIDA+protocolo / 409 `FORA_DO_PRAZO` (RN05), `ENVIO_INCOMPLETO` (RN12), `TRANSICAO_INVALIDA` |
+| `/api/submissoes/{id}/historico` | GET | 200 timeline RF12 / 404 |
+| `/api/submissoes/{id}/status` | PATCH | 200 (RF16, exige GERENCIADOR §9.2) / 400 `MOTIVO_OBRIGATORIO` (RN04), `PERMISSAO_INSUFICIENTE` / 409 `TRANSICAO_INVALIDA` |
+| `/api/gerenciador/submissoes?status=&editalId=&programaId=` | GET | 200 Page (RF14) |
+| `/api/submissoes/{id}/documentos` | POST / GET | 201+Location Multiparte (RF09) / 400 `ARQUIVO_INVALIDO`, `ARQUIVO_MUITO_GRANDE` (>5MB), `DESCRICAO_OBRIGATORIA` (RN11) / 409 `STATUS_NAO_EDITAVEL` (RN03) |
+| `/api/documentos/{id}/download` | GET | 200 `application/pdf` / 404 |
+| `/api/documentos/{id}` | DELETE | 204 (RN03) / 409 / 404 |
+| `/api/documentos/{id}/status` | PATCH | 200 validação RF15 (GERENCIADOR §9.2) / 400 `OBSERVACAO_OBRIGATORIA` |
+| `/api/notificacoes?somenteNaoLidas=` | GET | 200 inbox RF17 (D1) |
+| `/api/notificacoes/{id}/lida` | PATCH | 200 idempotente / 404 |
 
 Requisito: app no ar com o profile `dev` (passo 2) e o `docker compose up -d`.
 
