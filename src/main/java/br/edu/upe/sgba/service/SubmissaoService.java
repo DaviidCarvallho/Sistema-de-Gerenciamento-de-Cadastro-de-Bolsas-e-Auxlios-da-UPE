@@ -284,7 +284,9 @@ public class SubmissaoService {
                     StatusSubmissao.APROVADA, Set.of(),
                     StatusSubmissao.INDEFERIDA, Set.of()));
 
-    /** PATCH /{id}/status — exige GERENCIADOR (§9.2) + tabela RF16 + RN04. */
+    /** PATCH /{id}/status — exige GERENCIADOR (§9.2) + tabela RF16 + RN04. Ordem: completude do
+     *  argumento (motivo, RN04) antes da validade da transição — o roteiro do checkpoint prova
+     *  os dois bloqueios independentemente do status corrente. */
     @Transactional
     public SubmissaoDetalheResponse mudarStatus(Long id, Long gerenciadorId, DecisaoRequest req) {
         Submissao s = buscar(id);
@@ -292,17 +294,17 @@ public class SubmissaoService {
         if (req == null || req.novoStatus() == null) {
             throw Validacao.argumentoInvalido("Informe 'novoStatus'");
         }
-        StatusSubmissao anterior = s.getStatus();
-        Set<StatusSubmissao> permitidos = TRANSICOES_PATCH.getOrDefault(anterior, Set.of());
-        if (!permitidos.contains(req.novoStatus()) || anterior.equals(req.novoStatus())) {       // RF16
-            throw new RegraNegocioException("TRANSICAO_INVALIDA",
-                    "Transição '" + anterior + "' → '" + req.novoStatus() + "' não é permitida (RF16)");
-        }
         if ((req.novoStatus() == StatusSubmissao.PENDENTE_DOCUMENTOS
                 || req.novoStatus() == StatusSubmissao.INDEFERIDA)
                 && (req.motivo() == null || req.motivo().isBlank())) {                           // RN04
             throw new RegraNegocioException(HttpStatus.BAD_REQUEST, "MOTIVO_OBRIGATORIO",
                     "O motivo é obrigatório para os status PENDENTE_DOCUMENTOS e INDEFERIDA");
+        }
+        StatusSubmissao anterior = s.getStatus();
+        Set<StatusSubmissao> permitidos = TRANSICOES_PATCH.getOrDefault(anterior, Set.of());
+        if (!permitidos.contains(req.novoStatus()) || anterior.equals(req.novoStatus())) {       // RF16
+            throw new RegraNegocioException("TRANSICAO_INVALIDA",
+                    "Transição '" + anterior + "' → '" + req.novoStatus() + "' não é permitida (RF16)");
         }
 
         s.setStatus(req.novoStatus());

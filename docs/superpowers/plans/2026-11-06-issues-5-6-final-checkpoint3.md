@@ -479,3 +479,9 @@ git add docs/auditoria-checkpoint3-final.md && git commit -m "docs(cpc): auditor
 | C3 Service/RNs | RN02–RN05, RN07–RN12 + RF16 tabelado; códigos/mensagens do spec |
 | C4 Controllers | rotas `/api/submissoes*`, `/api/documentos*`, `/api/notificacoes*`, `/api/gerenciador/submissoes` com 200/201/204/400/404/409 + Location/attachment |
 | C5 Evidência | Insomnia completo (pastas 0–7), Postman consolidado, demo-checkpoint3.md, README, smoke a vivo |
+
+---
+
+## Suplemento de execução (rulings pós-plano)
+
+- **T9: Ruling:** em `mudarStatus`, RN04 (motivo ausente → 400) passa a checar **antes** da tabela RF16 (409): o roteiro de demo prova `MOTIVO_OBRIGATORIO` independentemente do status corrente (o smoke mostrou que PATCH repetido em PENDENTE_DOCUMENTOS sem motivo dava 409, confundindo o bloqueio esperado). Custo se errado: "mesmo status sem motivo" responde 400 em vez de 409 — coerente com D2 (argumento inválido) e com os testes existentes.
